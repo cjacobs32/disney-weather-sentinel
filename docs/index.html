@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#14213d">
+  <meta name="description" content="Consulta meteorológica por períodos para Orlando: histórico, pronóstico, tendencia y comparación.">
+  <title>Disney Weather Sentinel</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="config.js" defer></script>
+  <script src="assets/app.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="shell header-content">
+      <div>
+        <p class="eyebrow">ORLANDO · FLORIDA</p>
+        <h1>Disney Weather Sentinel</h1>
+        <p class="header-copy">Consultas por período, capturas de pronóstico y comparación posterior con lo ocurrido.</p>
+      </div>
+      <div class="cost-badge" aria-label="Arquitectura de costo cero">
+        <span>US$ 0</span>
+        <small>sin API key</small>
+      </div>
+    </div>
+  </header>
+
+  <main class="shell main-grid">
+    <section class="panel query-panel" aria-labelledby="query-title">
+      <div class="section-heading">
+        <div>
+          <p class="step">Consulta manual</p>
+          <h2 id="query-title">Elegí un período de hasta 15 días</h2>
+        </div>
+        <a id="actions-link" class="text-link hidden" href="#" target="_blank" rel="noreferrer">Ejecutar y guardar en GitHub</a>
+      </div>
+
+      <form id="query-form" class="query-form">
+        <label>
+          Tipo de consulta
+          <select id="query-mode" name="mode">
+            <option value="auto">Automática según las fechas</option>
+            <option value="historical">Histórico: qué ocurrió</option>
+            <option value="future">Futuro: mejor información disponible</option>
+            <option value="capture">Capturar pronóstico para comparar después</option>
+          </select>
+        </label>
+        <label>
+          Desde
+          <input id="start-date" name="start" type="date" required>
+        </label>
+        <label>
+          Hasta
+          <input id="end-date" name="end" type="date" required>
+        </label>
+        <label>
+          Años de referencia
+          <select id="history-years" name="historyYears">
+            <option value="5">5 años</option>
+            <option value="10" selected>10 años</option>
+            <option value="15">15 años</option>
+            <option value="20">20 años</option>
+          </select>
+        </label>
+        <button class="primary-button" type="submit">Analizar período</button>
+      </form>
+
+      <div id="validation-message" class="message hidden" role="alert"></div>
+      <div id="loading" class="loading hidden" aria-live="polite">
+        <span class="spinner" aria-hidden="true"></span>
+        <div>
+          <strong>Consultando información meteorológica</strong>
+          <p id="loading-detail">Preparando la consulta…</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="result-panel" class="panel result-panel hidden" aria-labelledby="result-title">
+      <div class="section-heading result-heading">
+        <div>
+          <p id="result-kicker" class="step">Resultado</p>
+          <h2 id="result-title">Período consultado</h2>
+        </div>
+        <div class="button-group">
+          <button id="save-capture" class="secondary-button hidden" type="button">Guardar captura</button>
+          <button id="export-json" class="secondary-button" type="button">Descargar JSON</button>
+          <button id="export-md" class="secondary-button" type="button">Descargar informe</button>
+        </div>
+      </div>
+      <div id="result-content"></div>
+    </section>
+
+    <section class="panel captures-panel" aria-labelledby="captures-title">
+      <div class="section-heading">
+        <div>
+          <p class="step">Pronóstico vs. realidad</p>
+          <h2 id="captures-title">Capturas guardadas en este dispositivo</h2>
+        </div>
+        <label class="file-button">
+          Importar respaldo
+          <input id="import-file" type="file" accept="application/json,.json">
+        </label>
+      </div>
+      <p class="muted">Las capturas quedan en el navegador. Exportalas para conservarlas o usá GitHub Actions para versionarlas en el repositorio.</p>
+      <div id="captures-list" class="captures-list"></div>
+    </section>
+
+    <section id="comparison-panel" class="panel result-panel hidden" aria-labelledby="comparison-title">
+      <div class="section-heading">
+        <div>
+          <p class="step">Comparación generada</p>
+          <h2 id="comparison-title">Pronóstico versus realidad</h2>
+        </div>
+        <button id="export-comparison" class="secondary-button" type="button">Descargar comparación</button>
+      </div>
+      <div id="comparison-content"></div>
+    </section>
+
+    <section class="panel info-panel" aria-labelledby="interpret-title">
+      <p class="step">Cómo interpretar el resultado</p>
+      <h2 id="interpret-title">No toda fecha futura tiene el mismo nivel de certeza</h2>
+      <div class="information-grid">
+        <article>
+          <span class="range-tag reliable">0–15 días</span>
+          <h3>Pronóstico diario</h3>
+          <p>Máximas, mínimas, precipitación y condiciones previstas con los modelos operativos actuales.</p>
+        </article>
+        <article>
+          <span class="range-tag trend">16 días–7 meses</span>
+          <h3>Tendencia estacional</h3>
+          <p>Rangos probabilísticos de ensamble. Sirve para detectar señales, no para afirmar qué ocurrirá un día concreto.</p>
+        </article>
+        <article>
+          <span class="range-tag reference">Cualquier fecha</span>
+          <h3>Referencia climática</h3>
+          <p>Qué ocurrió en esas mismas fechas durante años anteriores, con promedios y variabilidad.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="repository-latest" class="panel latest-panel hidden" aria-labelledby="latest-title">
+      <p class="step">Repositorio</p>
+      <h2 id="latest-title">Última consulta persistida por GitHub Actions</h2>
+      <div id="latest-content"></div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="shell">
+      <p>Datos meteorológicos: <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open‑Meteo</a>. El histórico y la referencia climática son productos modelados, no una estación física dentro del complejo.</p>
+    </div>
+  </footer>
+</body>
+</html>
