@@ -1,4 +1,4 @@
-# Arquitectura — Disney Weather Sentinel 4.0
+# Arquitectura — Disney Weather Sentinel 4.1
 
 ## Principio de veracidad
 
@@ -85,3 +85,15 @@ No se utiliza base de datos.
 - Sin backend permanente.
 - Sin cron activo.
 - GitHub Pages y GitHub Actions manual.
+
+
+## Presentación de precipitación
+
+La interfaz separa métricas que antes podían confundirse:
+
+- **Días con lluvia:** precipitación diaria observada de al menos 0,1 mm.
+- **Traza:** precipitación observada, pero inferior al umbral medible informado por la estación.
+- **Cobertura:** cantidad de fechas para las que NOAA devolvió observaciones.
+- **Intensidad:** leve (0,1–4,9 mm), moderada (5–19,9 mm) e intensa (20 mm o más).
+
+La cobertura nunca se utiliza como sustituto de los días con lluvia.

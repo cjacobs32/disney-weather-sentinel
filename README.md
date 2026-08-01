@@ -1,4 +1,4 @@
-# Disney Weather Sentinel 4.0
+# Disney Weather Sentinel 4.1
 
 Aplicación de costo cero para consultar el tiempo de Orlando bajo demanda, guardar pronósticos y compararlos posteriormente con observaciones oficiales.
 
@@ -6,6 +6,7 @@ Aplicación de costo cero para consultar el tiempo de Orlando bajo demanda, guar
 
 1. **Histórico observado:** el modo histórico usa NOAA/NCEI GHCN-Daily, estación Orlando International Airport (`USW00012815`, KMCO). Ya no presenta un reanálisis modelado como si fuera una medición real.
 2. **Rango libre:** no existe un límite artificial de 15 días. Se puede consultar un día, un mes, un año o varios años. Para períodos extensos, la interfaz resume por mes y el JSON conserva todos los registros diarios.
+3. **Lluvia destacada:** la pantalla principal muestra los días con lluvia como indicador prioritario, separado de la cobertura, con porcentaje, trazas y clasificación por intensidad. Los días con lluvia también quedan resaltados en la tabla diaria.
 
 ## Qué significa “observado”
 

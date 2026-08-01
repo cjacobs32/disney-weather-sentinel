@@ -69,7 +69,7 @@ class OpenMeteoProvider(WeatherProvider):
         self, url: str, params: dict[str, str | int | float]
     ) -> Any:
         headers = {
-            "User-Agent": "Disney-Weather-Sentinel/4.0",
+            "User-Agent": "Disney-Weather-Sentinel/4.1",
             "Accept": "application/json",
         }
         with httpx.Client(

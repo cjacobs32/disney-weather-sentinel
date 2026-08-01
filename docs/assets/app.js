@@ -472,8 +472,75 @@
     elements.validation.textContent = "";
   }
 
-  function summaryCard(label, value, detail = "") {
-    return `<article class="summary-card"><small>${label}</small><strong>${value}</strong>${detail ? `<small>${detail}</small>` : ""}</article>`;
+  function summaryCard(label, value, detail = "", className = "") {
+    const classes = ["summary-card", className].filter(Boolean).join(" ");
+    return `<article class="${classes}"><small>${label}</small><strong>${value}</strong>${detail ? `<small>${detail}</small>` : ""}</article>`;
+  }
+
+  function observedRainMetrics(rows, requestedDays = rows.length) {
+    const numericRows = rows.filter((row) => !row.precipitation_trace && Number.isFinite(row.precipitation_sum_mm));
+    const traceDays = rows.filter((row) => row.precipitation_trace).length;
+    const rainValues = numericRows.map((row) => row.precipitation_sum_mm);
+    const totalRain = rainValues.length ? rainValues.reduce((sum, value) => sum + value, 0) : null;
+    const rainyDays = rainValues.filter((value) => value >= 0.1).length;
+    const dryDays = rainValues.filter((value) => value < 0.1).length;
+    const lightDays = rainValues.filter((value) => value >= 0.1 && value < 5).length;
+    const moderateDays = rainValues.filter((value) => value >= 5 && value < 20).length;
+    const intenseDays = rainValues.filter((value) => value >= 20).length;
+    const measuredDays = numericRows.length + traceDays;
+    const noDataDays = Math.max(0, requestedDays - measuredDays);
+    const rainyPercentage = measuredDays ? (rainyDays / measuredDays) * 100 : null;
+    const averagePerRainyDay = rainyDays && totalRain !== null ? totalRain / rainyDays : null;
+    return {
+      totalRain,
+      rainyDays,
+      dryDays,
+      traceDays,
+      lightDays,
+      moderateDays,
+      intenseDays,
+      measuredDays,
+      noDataDays,
+      rainyPercentage,
+      averagePerRainyDay,
+    };
+  }
+
+  function rainDaysCard(metrics) {
+    if (!metrics.measuredDays) {
+      return summaryCard("Días con lluvia", "Sin datos", "NOAA no informó precipitación", "summary-card-rain");
+    }
+    const percentage = Math.round(metrics.rainyPercentage ?? 0);
+    const detail = [
+      `${percentage}% de los días medidos`,
+      metrics.traceDays ? `${metrics.traceDays} con traza` : "sin trazas",
+    ].join(" · ");
+    return `<article class="summary-card summary-card-rain">
+      <div class="summary-label-row"><small>Días con lluvia</small><span class="summary-badge">Dato clave</span></div>
+      <strong><span class="rain-days-number">${metrics.rainyDays}</span><span class="rain-days-total"> de ${metrics.measuredDays}</span></strong>
+      <div class="rain-progress" role="progressbar" aria-label="Porcentaje de días con lluvia" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percentage}"><span style="width:${Math.max(0, Math.min(100, percentage))}%"></span></div>
+      <small>${detail}</small>
+    </article>`;
+  }
+
+  function rainBreakdown(metrics) {
+    const items = [
+      ["Sin lluvia", metrics.dryDays, "rain-stat-dry"],
+      ["Lluvia leve", metrics.lightDays, "rain-stat-light"],
+      ["Moderada", metrics.moderateDays, "rain-stat-moderate"],
+      ["Intensa", metrics.intenseDays, "rain-stat-intense"],
+      ["Traza", metrics.traceDays, "rain-stat-trace"],
+    ];
+    if (metrics.noDataDays) items.push(["Sin dato", metrics.noDataDays, "rain-stat-missing"]);
+    return `<section class="rain-summary" aria-labelledby="rain-summary-title">
+      <div class="rain-summary-heading">
+        <div><p class="step">Detalle de precipitación</p><h3 id="rain-summary-title">Cómo se repartieron los días</h3></div>
+        <p>Se considera día con lluvia cuando NOAA midió al menos 0,1 mm. Las trazas se informan aparte.</p>
+      </div>
+      <div class="rain-breakdown" role="list">
+        ${items.map(([label, value, className]) => `<article class="rain-stat ${className}" role="listitem"><strong>${value}</strong><span>${label}</span></article>`).join("")}
+      </div>
+    </section>`;
   }
 
   function sampledRows(rows, maximum = 160) {
@@ -517,17 +584,36 @@
       </div>`;
   }
 
+  function observedRainClass(day) {
+    if (day.precipitation_trace) return "observed-trace-row";
+    if (!Number.isFinite(day.precipitation_sum_mm)) return "";
+    if (day.precipitation_sum_mm >= 20) return "observed-rain-row observed-rain-intense-row";
+    if (day.precipitation_sum_mm >= 5) return "observed-rain-row observed-rain-moderate-row";
+    if (day.precipitation_sum_mm >= 0.1) return "observed-rain-row";
+    return "";
+  }
+
+  function observedRainCell(day) {
+    if (day.precipitation_trace) return '<span class="rain-value rain-value-trace">Traza</span>';
+    if (!Number.isFinite(day.precipitation_sum_mm)) return '<span class="rain-value rain-value-missing">Sin dato</span>';
+    const value = `${formatNumber(day.precipitation_sum_mm)} mm`;
+    if (day.precipitation_sum_mm >= 20) return `<span class="rain-value rain-value-intense">${value}</span>`;
+    if (day.precipitation_sum_mm >= 5) return `<span class="rain-value rain-value-moderate">${value}</span>`;
+    if (day.precipitation_sum_mm >= 0.1) return `<span class="rain-value rain-value-light">${value}</span>`;
+    return `<span class="rain-value rain-value-dry">${value}</span>`;
+  }
+
   function dailyTable(rows, options = {}) {
     const probability = options.probability !== false;
     const observed = options.observed === true;
     return `<div class="table-wrap"><table>
       <thead><tr><th>Fecha</th>${observed ? "" : "<th>Condición</th>"}<th class="numeric">Máx.</th><th class="numeric">Mín.</th><th class="numeric">Lluvia</th>${probability ? '<th class="numeric">Prob.</th>' : ""}<th class="numeric">Viento</th></tr></thead>
-      <tbody>${rows.map((day) => `<tr>
+      <tbody>${rows.map((day) => `<tr class="${observed ? observedRainClass(day) : ""}">
         <td>${dateLabel(day.date)}</td>
         ${observed ? "" : `<td>${condition(day.weather_code)}</td>`}
         <td class="numeric">${formatNumber(day.temperature_max_c)} °C</td>
         <td class="numeric">${formatNumber(day.temperature_min_c)} °C</td>
-        <td class="numeric">${day.precipitation_trace ? "Traza" : day.precipitation_sum_mm == null ? "Sin dato" : `${formatNumber(day.precipitation_sum_mm)} mm`}</td>
+        <td class="numeric">${observed ? observedRainCell(day) : day.precipitation_trace ? "Traza" : day.precipitation_sum_mm == null ? "Sin dato" : `${formatNumber(day.precipitation_sum_mm)} mm`}</td>
         ${probability ? `<td class="numeric">${day.precipitation_probability_max_pct == null ? "—" : `${formatNumber(day.precipitation_probability_max_pct, 0)}%`}</td>` : ""}
         <td class="numeric">${formatNumber(day.wind_speed_max_kmh)} km/h</td>
       </tr>`).join("")}</tbody>
@@ -554,19 +640,19 @@
     const rows = result.daily;
     const averageMax = average(rows.map((row) => row.temperature_max_c));
     const averageMin = average(rows.map((row) => row.temperature_min_c));
-    const rainValues = rows.map((row) => row.precipitation_sum_mm).filter(Number.isFinite);
-    const totalRain = rainValues.length ? rainValues.reduce((sum, value) => sum + value, 0) : null;
-    const rainyDays = rainValues.filter((value) => value >= 0.1).length;
-    const traceDays = rows.filter((row) => row.precipitation_trace).length;
+    const rain = observedRainMetrics(rows, result.requested_days);
+    const coveragePercentage = result.requested_days ? (result.returned_days / result.requested_days) * 100 : null;
     elements.resultKicker.textContent = "Observado en estación oficial";
     elements.resultTitle.textContent = `${dateLabel(result.requested_start)} al ${dateLabel(result.requested_end)}`;
     elements.resultContent.innerHTML = `
-      <div class="summary-grid">
+      <div class="summary-grid historical-summary-grid">
+        ${rainDaysCard(rain)}
+        ${summaryCard("Lluvia acumulada", rain.totalRain == null ? "Sin dato" : `${formatNumber(rain.totalRain)} mm`, rain.averagePerRainyDay == null ? "Sin lluvia medible" : `${formatNumber(rain.averagePerRainyDay)} mm por día con lluvia`, "summary-card-rain-total")}
         ${summaryCard("Máxima promedio", `${formatNumber(averageMax)} °C`)}
         ${summaryCard("Mínima promedio", `${formatNumber(averageMin)} °C`)}
-        ${summaryCard("Lluvia observada", totalRain == null ? "Sin dato" : `${formatNumber(totalRain)} mm`)}
-        ${summaryCard("Cobertura", `${result.returned_days} de ${result.requested_days} días`, `${rainyDays} con lluvia · ${traceDays} con traza`)}
+        ${summaryCard("Cobertura NOAA", `${result.returned_days} de ${result.requested_days} días`, coveragePercentage == null ? "Sin dato" : `${formatNumber(coveragePercentage, 0)}% del período`)}
       </div>
+      ${rainBreakdown(rain)}
       <div class="notice"><strong>Fuente:</strong> NOAA/NCEI · ${result.dataset} · <strong>${result.station_name} (${result.station_id})</strong>, a unos ${formatNumber(result.station_distance_from_target_km)} km de Disney. Son mediciones reales en KMCO, no dentro de los parques.</div>
       ${result.missing_dates.length ? `<div class="notice warning"><strong>Cobertura incompleta:</strong> faltan ${result.missing_dates.length} fechas. Los datos ausentes no se convierten en cero ni se completan con un modelo.</div>` : ""}
       ${createTemperatureChart(rows, "temperature_max_c", "temperature_min_c")}
@@ -636,6 +722,7 @@
   }
 
   function historicalMarkdown(result) {
+    const rain = observedRainMetrics(result.daily, result.requested_days);
     const lines = [
       "# Observaciones meteorológicas oficiales — Orlando",
       "",
@@ -644,6 +731,11 @@
       `Fuente: NOAA/NCEI — ${result.dataset}`,
       `Distancia aproximada a Disney: ${formatNumber(result.station_distance_from_target_km)} km`,
       `Cobertura: ${result.returned_days} de ${result.requested_days} días`,
+      `Días con lluvia medible: ${rain.rainyDays} de ${rain.measuredDays}`,
+      `Días con traza: ${rain.traceDays}`,
+      `Días sin lluvia: ${rain.dryDays}`,
+      `Lluvia acumulada: ${rain.totalRain == null ? "Sin dato" : `${formatNumber(rain.totalRain)} mm`}`,
+      `Intensidad diaria: ${rain.lightDays} leves · ${rain.moderateDays} moderados · ${rain.intenseDays} intensos`,
       "",
       "> Son observaciones reales en KMCO, no mediciones dentro de Walt Disney World. Los faltantes no se reemplazan por cero ni por un modelo.",
       "",

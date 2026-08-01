@@ -80,11 +80,16 @@ def render_historical(result: PeriodWeather) -> str:
     measured_rain = [
         day.precipitation_sum_mm
         for day in result.daily
-        if day.precipitation_sum_mm is not None
+        if day.precipitation_sum_mm is not None and not day.precipitation_trace
     ]
     precipitation = sum(measured_rain) if measured_rain else None
     rainy_days = sum(value >= 0.1 for value in measured_rain)
+    dry_days = sum(value < 0.1 for value in measured_rain)
+    light_days = sum(0.1 <= value < 5 for value in measured_rain)
+    moderate_days = sum(5 <= value < 20 for value in measured_rain)
+    intense_days = sum(value >= 20 for value in measured_rain)
     trace_days = sum(day.precipitation_trace for day in result.daily)
+    precipitation_observation_days = len(measured_rain) + trace_days
     lines = [
         "# Disney Weather Sentinel — Observaciones oficiales",
         "",
@@ -97,8 +102,10 @@ def render_historical(result: PeriodWeather) -> str:
         f"- **Promedio de máximas observadas:** {_fmt(average_max)} °C",
         f"- **Promedio de mínimas observadas:** {_fmt(average_min)} °C",
         f"- **Precipitación observada acumulada:** {_fmt(precipitation)} mm",
-        f"- **Días con lluvia medible:** {rainy_days}",
+        f"- **Días con lluvia medible:** {rainy_days} de {precipitation_observation_days}",
+        f"- **Días sin lluvia:** {dry_days}",
         f"- **Días con traza:** {trace_days}",
+        f"- **Intensidad diaria:** {light_days} leves · {moderate_days} moderados · {intense_days} intensos",
         "",
         "> Son observaciones de una estación física en Orlando International Airport. No son mediciones dentro de Walt Disney World; la lluvia puede variar localmente.",
         "",

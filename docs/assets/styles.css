@@ -286,3 +286,204 @@ tr:last-child td { border-bottom: 0; }
   .button-group { width: 100%; }
   .button-group button { flex: 1; }
 }
+
+/* v4.1 — la lluvia se presenta como indicador principal y no como detalle de cobertura. */
+.historical-summary-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  align-items: stretch;
+}
+
+.summary-card-rain {
+  position: relative;
+  grid-column: span 2;
+  overflow: hidden;
+  border-color: #82b9f5;
+  background:
+    radial-gradient(circle at 92% 12%, rgba(255,255,255,.7), transparent 30%),
+    linear-gradient(135deg, #e7f3ff 0%, #cfe7ff 100%);
+  box-shadow: 0 10px 24px rgba(31, 111, 235, .13);
+}
+
+.summary-card-rain::after {
+  content: "";
+  position: absolute;
+  right: -28px;
+  bottom: -48px;
+  width: 130px;
+  height: 130px;
+  border: 22px solid rgba(31, 111, 235, .08);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.summary-label-row {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.summary-badge {
+  padding: 3px 8px;
+  border: 1px solid rgba(21, 87, 176, .2);
+  border-radius: 999px;
+  background: rgba(255,255,255,.68);
+  color: var(--blue-dark);
+  font-size: .68rem;
+  font-weight: 850;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.summary-card-rain strong {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: baseline;
+  margin: 6px 0 8px;
+  color: #0c4f9d;
+}
+
+.rain-days-number {
+  font-size: clamp(2.35rem, 4vw, 3.2rem);
+  font-weight: 900;
+  line-height: .95;
+}
+
+.rain-days-total {
+  margin-left: 5px;
+  font-size: 1.2rem;
+  font-weight: 800;
+}
+
+.rain-progress {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 8px;
+  margin: 7px 0 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255,255,255,.8);
+}
+
+.rain-progress > span {
+  display: block;
+  min-width: 3px;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #1f6feb, #55a4f5);
+}
+
+.summary-card-rain-total {
+  border-color: #c7ddf5;
+  background: #f2f8ff;
+}
+
+.rain-summary {
+  margin: -2px 0 22px;
+  padding: 18px;
+  border: 1px solid #cfe0f3;
+  border-radius: 15px;
+  background: linear-gradient(180deg, #fbfdff 0%, #f5f9fe 100%);
+}
+
+.rain-summary-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 14px;
+}
+
+.rain-summary-heading h3,
+.rain-summary-heading p {
+  margin-bottom: 0;
+}
+
+.rain-summary-heading > p {
+  max-width: 520px;
+  color: #65728a;
+  font-size: .85rem;
+  text-align: right;
+}
+
+.rain-breakdown {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.rain-stat {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.rain-stat strong {
+  min-width: 34px;
+  font-size: 1.55rem;
+  line-height: 1;
+  text-align: center;
+}
+
+.rain-stat span {
+  color: #4d5c76;
+  font-size: .82rem;
+  font-weight: 750;
+}
+
+.rain-stat-dry strong { color: #52637c; }
+.rain-stat-light { border-color: #b9d9fb; background: #f2f8ff; }
+.rain-stat-light strong { color: #1f6feb; }
+.rain-stat-moderate { border-color: #f1d28a; background: #fff9e9; }
+.rain-stat-moderate strong { color: #9a6700; }
+.rain-stat-intense { border-color: #efb1aa; background: #fff4f2; }
+.rain-stat-intense strong { color: #b42318; }
+.rain-stat-trace { border-style: dashed; }
+.rain-stat-trace strong { color: #4f6f9c; }
+.rain-stat-missing { border-style: dashed; background: #f7f8fa; }
+.rain-stat-missing strong { color: #7b8494; }
+
+.rain-value {
+  display: inline-flex;
+  justify-content: center;
+  min-width: 72px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: .78rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.rain-value-dry { color: #66738a; background: #f0f3f7; }
+.rain-value-light { color: #1557b0; background: #e5f2ff; }
+.rain-value-moderate { color: #8a6200; background: #fff1c5; }
+.rain-value-intense { color: #a51d13; background: #ffe2de; }
+.rain-value-trace { color: #315c9c; background: #e8f1ff; border: 1px dashed #8bb4e8; }
+.rain-value-missing { color: #717b8d; background: #f1f2f4; }
+
+.observed-rain-row td { background: #f8fbff; }
+.observed-rain-moderate-row td { background: #fffdf6; }
+.observed-rain-intense-row td { background: #fff8f7; }
+.observed-trace-row td { background: #fbfcff; }
+
+@media (max-width: 980px) {
+  .historical-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .summary-card-rain { grid-column: span 2; }
+}
+
+@media (max-width: 680px) {
+  .historical-summary-grid { grid-template-columns: 1fr; }
+  .summary-card-rain { grid-column: auto; }
+  .rain-summary-heading { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .rain-summary-heading > p { text-align: left; }
+  .rain-breakdown { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

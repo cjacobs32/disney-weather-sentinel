@@ -221,3 +221,44 @@ def test_compare_saved_snapshot_with_noaa_observation(tmp_path: Path) -> None:
     assert len(reports) == 1
     assert reports[0].actual_station_id == "USW00012815"
     assert reports[0].daily[0].lead_days == 7
+
+
+def test_historical_report_highlights_rain_days_without_counting_trace_twice() -> None:
+    from disney_weather.models import PeriodWeather
+    from disney_weather.reporting import render_historical
+
+    result = PeriodWeather(
+        location_name="Walt Disney World Resort, Orlando",
+        latitude=28.3772,
+        longitude=-81.5707,
+        timezone="America/New_York",
+        station_id="USW00012815",
+        station_name="ORLANDO INTERNATIONAL AIRPORT, FL US",
+        station_latitude=28.41822,
+        station_longitude=-81.32413,
+        station_distance_from_target_km=24.5,
+        station_record_start=date(1952, 1, 1),
+        requested_start=date(2025, 11, 1),
+        requested_end=date(2025, 11, 4),
+        retrieved_at_utc=datetime(2026, 8, 1, tzinfo=timezone.utc),
+        coverage_start=date(2025, 11, 1),
+        coverage_end=date(2025, 11, 4),
+        requested_days=4,
+        returned_days=4,
+        daily=[
+            DailyWeather(date=date(2025, 11, 1), precipitation_sum_mm=0.0),
+            DailyWeather(date=date(2025, 11, 2), precipitation_sum_mm=1.5),
+            DailyWeather(date=date(2025, 11, 3), precipitation_sum_mm=8.0),
+            DailyWeather(
+                date=date(2025, 11, 4),
+                precipitation_sum_mm=0.0,
+                precipitation_trace=True,
+            ),
+        ],
+    )
+
+    report = render_historical(result)
+    assert "Días con lluvia medible:** 2 de 4" in report
+    assert "Días sin lluvia:** 1" in report
+    assert "Días con traza:** 1" in report
+    assert "1 leves · 1 moderados · 0 intensos" in report
