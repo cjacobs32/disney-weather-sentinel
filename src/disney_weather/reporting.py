@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from statistics import mean
 
-from .models import ComparisonReport, ForecastSnapshot, FutureOutlook, PeriodWeather
+from .models import ComparisonReport, DailyWeather, ForecastSnapshot, FutureOutlook, PeriodWeather
 
 
 WEATHER_CODES: dict[int, str] = {
@@ -28,46 +29,103 @@ WEATHER_CODES: dict[int, str] = {
 
 
 def _fmt(value: float | None, digits: int = 1) -> str:
-    return "—" if value is None else f"{value:.{digits}f}"
+    return "Sin dato" if value is None else f"{value:.{digits}f}"
+
+
+def _mean(values: list[float | None]) -> float | None:
+    usable = [value for value in values if value is not None]
+    return mean(usable) if usable else None
+
+
+def _sum(values: list[float | None]) -> float | None:
+    usable = [value for value in values if value is not None]
+    return sum(usable) if usable else None
 
 
 def _condition(code: int | None) -> str:
     return "—" if code is None else WEATHER_CODES.get(code, f"Código {code}")
 
 
-def render_historical(result: PeriodWeather) -> str:
-    average_max = mean(day.temperature_max_c for day in result.daily)
-    average_min = mean(day.temperature_min_c for day in result.daily)
-    precipitation = sum(day.precipitation_sum_mm for day in result.daily)
-    rainy_days = sum(day.precipitation_sum_mm >= 0.1 for day in result.daily)
-    lines = [
-        "# Disney Weather Sentinel — Histórico del período",
-        "",
-        f"- **Período:** {result.requested_start} al {result.requested_end}",
-        f"- **Ubicación:** {result.location_name}",
-        f"- **Fuente:** {result.provider} / {result.dataset}",
-        f"- **Promedio de máximas:** {average_max:.1f} °C",
-        f"- **Promedio de mínimas:** {average_min:.1f} °C",
-        f"- **Precipitación acumulada:** {precipitation:.1f} mm",
-        f"- **Días con precipitación:** {rainy_days} de {len(result.daily)}",
-        "",
-        "| Fecha | Condición | Máx. °C | Mín. °C | Lluvia mm | Horas precip. | Viento km/h |",
-        "|---|---|---:|---:|---:|---:|---:|",
+def _rain(day: DailyWeather) -> str:
+    if day.precipitation_trace:
+        return "Traza"
+    return f"{day.precipitation_sum_mm:.1f}" if day.precipitation_sum_mm is not None else "Sin dato"
+
+
+def _monthly_rows(days: list[DailyWeather]) -> list[str]:
+    grouped: dict[str, list[DailyWeather]] = defaultdict(list)
+    for day in days:
+        grouped[day.date.strftime("%Y-%m")].append(day)
+    output = [
+        "| Mes | Días devueltos | Máx. media °C | Mín. media °C | Lluvia mm | Días lluvia | Trazas |",
+        "|---|---:|---:|---:|---:|---:|---:|",
     ]
-    for day in result.daily:
-        lines.append(
-            f"| {day.date} | {_condition(day.weather_code)} | "
-            f"{day.temperature_max_c:.1f} | {day.temperature_min_c:.1f} | "
-            f"{day.precipitation_sum_mm:.1f} | {_fmt(day.precipitation_hours)} | "
-            f"{_fmt(day.wind_speed_max_kmh)} |"
-        )
-    lines.extend(
-        [
-            "",
-            "> El histórico es una referencia meteorológica modelada; no es una medición de una estación dentro de Walt Disney World.",
-            "",
+    for month, rows in sorted(grouped.items()):
+        measurable = [
+            day.precipitation_sum_mm
+            for day in rows
+            if day.precipitation_sum_mm is not None
         ]
-    )
+        output.append(
+            f"| {month} | {len(rows)} | {_fmt(_mean([d.temperature_max_c for d in rows]))} | "
+            f"{_fmt(_mean([d.temperature_min_c for d in rows]))} | {_fmt(sum(measurable) if measurable else None)} | "
+            f"{sum(value >= 0.1 for value in measurable)} | {sum(d.precipitation_trace for d in rows)} |"
+        )
+    return output
+
+
+def render_historical(result: PeriodWeather) -> str:
+    average_max = _mean([day.temperature_max_c for day in result.daily])
+    average_min = _mean([day.temperature_min_c for day in result.daily])
+    measured_rain = [
+        day.precipitation_sum_mm
+        for day in result.daily
+        if day.precipitation_sum_mm is not None
+    ]
+    precipitation = sum(measured_rain) if measured_rain else None
+    rainy_days = sum(value >= 0.1 for value in measured_rain)
+    trace_days = sum(day.precipitation_trace for day in result.daily)
+    lines = [
+        "# Disney Weather Sentinel — Observaciones oficiales",
+        "",
+        f"- **Período solicitado:** {result.requested_start} al {result.requested_end}",
+        f"- **Destino de referencia:** {result.location_name}",
+        f"- **Estación observadora:** {result.station_name} ({result.station_id})",
+        f"- **Distancia aproximada a Disney:** {result.station_distance_from_target_km:.1f} km",
+        f"- **Fuente:** NOAA / NCEI — {result.dataset}",
+        f"- **Cobertura devuelta:** {result.returned_days} de {result.requested_days} días",
+        f"- **Promedio de máximas observadas:** {_fmt(average_max)} °C",
+        f"- **Promedio de mínimas observadas:** {_fmt(average_min)} °C",
+        f"- **Precipitación observada acumulada:** {_fmt(precipitation)} mm",
+        f"- **Días con lluvia medible:** {rainy_days}",
+        f"- **Días con traza:** {trace_days}",
+        "",
+        "> Son observaciones de una estación física en Orlando International Airport. No son mediciones dentro de Walt Disney World; la lluvia puede variar localmente.",
+        "",
+    ]
+    if result.missing_dates:
+        lines.extend(
+            [
+                f"> **Cobertura incompleta:** faltan {len(result.missing_dates)} fechas. Los datos ausentes no fueron reemplazados por cero ni por un modelo.",
+                "",
+            ]
+        )
+    if len(result.daily) > 180:
+        lines.extend(["## Resumen mensual", "", *_monthly_rows(result.daily), ""])
+    else:
+        lines.extend(
+            [
+                "| Fecha | Máx. °C | Mín. °C | Precipitación mm | Viento medio km/h | Viento máx. km/h | Calidad |",
+                "|---|---:|---:|---:|---:|---:|---|",
+            ]
+        )
+        for day in result.daily:
+            quality = ", ".join(f"{key}:{value}" for key, value in day.quality_flags.items()) or "—"
+            lines.append(
+                f"| {day.date} | {_fmt(day.temperature_max_c)} | {_fmt(day.temperature_min_c)} | "
+                f"{_rain(day)} | {_fmt(day.wind_speed_mean_kmh)} | {_fmt(day.wind_speed_max_kmh)} | {quality} |"
+            )
+        lines.append("")
     return "\n".join(lines)
 
 
@@ -77,7 +135,7 @@ def render_forecast(snapshot: ForecastSnapshot) -> str:
         "",
         f"- **Período:** {snapshot.requested_start} al {snapshot.requested_end}",
         f"- **Capturado:** {snapshot.captured_at_utc.isoformat()}",
-        f"- **Ubicación:** {snapshot.location_name}",
+        f"- **Ubicación pronosticada:** {snapshot.location_name}",
         "",
         "| Fecha | Condición | Máx. °C | Mín. °C | Lluvia mm | Prob. precip. | Viento km/h |",
         "|---|---|---:|---:|---:|---:|---:|",
@@ -89,19 +147,11 @@ def render_forecast(snapshot: ForecastSnapshot) -> str:
             else f"{day.precipitation_probability_max_pct:.0f}%"
         )
         lines.append(
-            f"| {day.date} | {_condition(day.weather_code)} | "
-            f"{day.temperature_max_c:.1f} | {day.temperature_min_c:.1f} | "
-            f"{day.precipitation_sum_mm:.1f} | {probability} | "
+            f"| {day.date} | {_condition(day.weather_code)} | {_fmt(day.temperature_max_c)} | "
+            f"{_fmt(day.temperature_min_c)} | {_fmt(day.precipitation_sum_mm)} | {probability} | "
             f"{_fmt(day.wind_speed_max_kmh)} |"
         )
-    lines.extend(
-        [
-            "",
-            "> Esta captura es inmutable y permite comparar posteriormente el pronóstico con lo ocurrido.",
-            "",
-        ]
-    )
-    return "\n".join(lines)
+    return "\n".join(lines) + "\n"
 
 
 def render_future(result: FutureOutlook) -> str:
@@ -110,16 +160,18 @@ def render_future(result: FutureOutlook) -> str:
         "",
         f"- **Período solicitado:** {result.requested_start} al {result.requested_end}",
         f"- **Pronóstico diario disponible hasta:** {result.forecast_available_through}",
-        f"- **Años de referencia climática:** {', '.join(map(str, result.climate_reference_years))}",
+        f"- **Días con pronóstico diario:** {len(result.live_forecast)}",
+        f"- **Días con tendencia estacional:** {len(result.seasonal_estimate)}",
+        f"- **Días con referencia climática:** {len(result.climate_reference)}",
         "",
     ]
     if result.live_forecast:
         lines.extend(
             [
-                "## Pronóstico meteorológico vigente",
+                "## Pronóstico diario vigente",
                 "",
-                "| Fecha | Máx. °C | Mín. °C | Lluvia mm | Prob. precip. |",
-                "|---|---:|---:|---:|---:|",
+                "| Fecha | Condición | Máx. °C | Mín. °C | Lluvia mm | Prob. precip. |",
+                "|---|---|---:|---:|---:|---:|",
             ]
         )
         for day in result.live_forecast:
@@ -129,80 +181,83 @@ def render_future(result: FutureOutlook) -> str:
                 else f"{day.precipitation_probability_max_pct:.0f}%"
             )
             lines.append(
-                f"| {day.date} | {day.temperature_max_c:.1f} | "
-                f"{day.temperature_min_c:.1f} | {day.precipitation_sum_mm:.1f} | "
-                f"{probability} |"
+                f"| {day.date} | {_condition(day.weather_code)} | {_fmt(day.temperature_max_c)} | "
+                f"{_fmt(day.temperature_min_c)} | {_fmt(day.precipitation_sum_mm)} | {probability} |"
             )
         lines.append("")
-
     if result.seasonal_estimate:
         lines.extend(
             [
-                "## Tendencia estacional por ensamble",
+                "## Tendencia estacional probabilística",
                 "",
-                "| Fecha | Máx. media (P10–P90) | Mín. media (P10–P90) | Lluvia media / P90 |",
+                "| Fecha | Máx. media P10–P90 | Mín. media P10–P90 | Lluvia media/P90 |",
                 "|---|---:|---:|---:|",
             ]
         )
         for day in result.seasonal_estimate:
             lines.append(
                 f"| {day.date} | {_fmt(day.temperature_max_mean_c)} "
-                f"({_fmt(day.temperature_max_p10_c)}–{_fmt(day.temperature_max_p90_c)}) °C | "
+                f"({_fmt(day.temperature_max_p10_c)}–{_fmt(day.temperature_max_p90_c)}) | "
                 f"{_fmt(day.temperature_min_mean_c)} "
-                f"({_fmt(day.temperature_min_p10_c)}–{_fmt(day.temperature_min_p90_c)}) °C | "
-                f"{_fmt(day.precipitation_mean_mm)} / {_fmt(day.precipitation_p90_mm)} mm |"
+                f"({_fmt(day.temperature_min_p10_c)}–{_fmt(day.temperature_min_p90_c)}) | "
+                f"{_fmt(day.precipitation_mean_mm)}/{_fmt(day.precipitation_p90_mm)} |"
             )
         lines.append("")
-
     lines.extend(
         [
-            "## Referencia climática de años anteriores",
+            "> El rango seleccionado puede ser extenso, pero la disponibilidad de pronóstico depende del horizonte de los modelos. No se inventan días no cubiertos.",
             "",
-            "| Fecha objetivo | Máx. media (P10–P90) | Mín. media (P10–P90) | Lluvia media / P90 | Frecuencia lluvia |",
-            "|---|---:|---:|---:|---:|",
         ]
     )
-    for day in result.climate_reference:
-        lines.append(
-            f"| {day.date} | {day.temperature_max_mean_c:.1f} "
-            f"({day.temperature_max_p10_c:.1f}–{day.temperature_max_p90_c:.1f}) °C | "
-            f"{day.temperature_min_mean_c:.1f} "
-            f"({day.temperature_min_p10_c:.1f}–{day.temperature_min_p90_c:.1f}) °C | "
-            f"{day.precipitation_mean_mm:.1f} / {day.precipitation_p90_mm:.1f} mm | "
-            f"{day.rain_frequency_pct:.0f}% |"
-        )
-    lines.extend(["", "## Lectura correcta", ""])
-    lines.extend(f"- {note}" for note in result.notes)
-    lines.append("")
     return "\n".join(lines)
 
 
 def render_comparison(report: ComparisonReport) -> str:
-    max_mae = mean(row.temperature_max_error_c.absolute for row in report.daily)
-    min_mae = mean(row.temperature_min_error_c.absolute for row in report.daily)
-    rain_mae = mean(row.precipitation_error_mm.absolute for row in report.daily)
-    rain_accuracy = 100 * mean(1.0 if row.rain_event_correct else 0.0 for row in report.daily)
+    max_errors = [
+        row.temperature_max_error_c.absolute
+        for row in report.daily
+        if row.temperature_max_error_c is not None
+    ]
+    min_errors = [
+        row.temperature_min_error_c.absolute
+        for row in report.daily
+        if row.temperature_min_error_c is not None
+    ]
+    rain_errors = [
+        row.precipitation_error_mm.absolute
+        for row in report.daily
+        if row.precipitation_error_mm is not None
+    ]
+    rain_events = [row.rain_event_correct for row in report.daily if row.rain_event_correct is not None]
     lines = [
-        "# Disney Weather Sentinel — Pronóstico versus realidad",
+        "# Disney Weather Sentinel — Pronóstico vs. observación",
         "",
         f"- **Período:** {report.requested_start} al {report.requested_end}",
-        f"- **Pronóstico capturado:** {report.snapshot_captured_at_utc.isoformat()}",
-        f"- **Fuente de realidad:** {report.actual_dataset}",
-        f"- **MAE máxima:** {max_mae:.2f} °C",
-        f"- **MAE mínima:** {min_mae:.2f} °C",
-        f"- **MAE precipitación:** {rain_mae:.2f} mm",
-        f"- **Acierto de evento de lluvia:** {rain_accuracy:.1f}%",
+        f"- **Captura:** {report.snapshot_captured_at_utc.isoformat()}",
+        f"- **Observación real:** {report.actual_station_name} ({report.actual_station_id})",
+        f"- **Distancia a Disney:** {report.actual_station_distance_from_target_km:.1f} km",
+        f"- **MAE máxima:** {_fmt(mean(max_errors) if max_errors else None, 2)} °C",
+        f"- **MAE mínima:** {_fmt(mean(min_errors) if min_errors else None, 2)} °C",
+        f"- **MAE precipitación:** {_fmt(mean(rain_errors) if rain_errors else None, 2)} mm",
+        f"- **Acierto lluvia:** {_fmt(100 * sum(rain_events) / len(rain_events) if rain_events else None, 1)}%",
         "",
-        "| Fecha | Anticipación | Máx. pron./real | Mín. pron./real | Lluvia pron./real | Acierto lluvia |",
-        "|---|---:|---:|---:|---:|:---:|",
+        "| Fecha | Anticipación | Máx. pron./obs. | Mín. pron./obs. | Lluvia pron./obs. | Acierto lluvia |",
+        "|---|---:|---:|---:|---:|---|",
     ]
     for row in report.daily:
+        rain_correct = "Sin dato" if row.rain_event_correct is None else ("Sí" if row.rain_event_correct else "No")
         lines.append(
             f"| {row.target_date} | {row.lead_days} días | "
-            f"{row.forecast.temperature_max_c:.1f}/{row.actual.temperature_max_c:.1f} °C | "
-            f"{row.forecast.temperature_min_c:.1f}/{row.actual.temperature_min_c:.1f} °C | "
-            f"{row.forecast.precipitation_sum_mm:.1f}/{row.actual.precipitation_sum_mm:.1f} mm | "
-            f"{'Sí' if row.rain_event_correct else 'No'} |"
+            f"{_fmt(row.forecast.temperature_max_c)}/{_fmt(row.actual.temperature_max_c)} °C | "
+            f"{_fmt(row.forecast.temperature_min_c)}/{_fmt(row.actual.temperature_min_c)} °C | "
+            f"{_fmt(row.forecast.precipitation_sum_mm)}/{_fmt(row.actual.precipitation_sum_mm)} mm | "
+            f"{rain_correct} |"
         )
-    lines.append("")
+    lines.extend(
+        [
+            "",
+            "> El pronóstico corresponde a las coordenadas de Walt Disney World y la observación a KMCO. La comparación de lluvia debe interpretarse con cautela por la variabilidad local.",
+            "",
+        ]
+    )
     return "\n".join(lines)

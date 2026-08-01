@@ -2,7 +2,7 @@
   "use strict";
 
   const config = window.DWS_CONFIG;
-  const STORAGE_KEY = "disney-weather-sentinel.snapshots.v2";
+  const STORAGE_KEY = "disney-weather-sentinel.snapshots.v4";
   const DAILY_FORECAST_FIELDS = [
     "weather_code",
     "temperature_2m_max",
@@ -40,6 +40,7 @@
     forecast: "https://api.open-meteo.com/v1/forecast",
     archive: "https://archive-api.open-meteo.com/v1/archive",
     seasonal: "https://seasonal-api.open-meteo.com/v1/seasonal",
+    noaa: "https://www.ncei.noaa.gov/access/services/data/v1",
   };
 
   const weatherCodes = {
@@ -179,17 +180,22 @@
     };
   }
 
-  async function apiFetch(url, parameters) {
+  async function rawJsonFetch(url, parameters) {
     const query = new URLSearchParams();
     Object.entries(parameters).forEach(([key, value]) => query.set(key, String(value)));
     const response = await fetch(`${url}?${query.toString()}`, {
       headers: { Accept: "application/json" },
     });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok || payload.error) {
-      throw new Error(payload.reason || `Error HTTP ${response.status}`);
+    if (!response.ok || payload?.error || payload?.errorMessage) {
+      throw new Error(payload?.reason || payload?.errorMessage || `Error HTTP ${response.status}`);
     }
-    if (!payload.daily) throw new Error("La API no devolvió datos diarios.");
+    return payload;
+  }
+
+  async function apiFetch(url, parameters) {
+    const payload = await rawJsonFetch(url, parameters);
+    if (!payload?.daily) throw new Error("La API no devolvió datos diarios.");
     return payload;
   }
 
@@ -202,7 +208,7 @@
       temperature_min_c: daily.temperature_2m_min?.[index] ?? null,
       apparent_temperature_max_c: daily.apparent_temperature_max?.[index] ?? null,
       apparent_temperature_min_c: daily.apparent_temperature_min?.[index] ?? null,
-      precipitation_sum_mm: daily.precipitation_sum?.[index] ?? 0,
+      precipitation_sum_mm: daily.precipitation_sum?.[index] ?? null,
       rain_sum_mm: daily.rain_sum?.[index] ?? null,
       precipitation_hours: daily.precipitation_hours?.[index] ?? null,
       precipitation_probability_max_pct: daily.precipitation_probability_max?.[index] ?? null,
@@ -223,16 +229,105 @@
     return parseDaily(payload);
   }
 
-  async function queryHistorical(start, end) {
-    const payload = await apiFetch(endpoints.archive, {
-      ...commonParams(),
-      start_date: start,
-      end_date: end,
-      daily: DAILY_ARCHIVE_FIELDS,
+  function noaaNumber(value) {
+    if (value === null || value === undefined) return null;
+    const text = String(value).trim();
+    if (!text || ["T", "M", "NULL", "NAN"].includes(text.toUpperCase())) return null;
+    const parsed = Number(text);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function noaaAttributes(value) {
+    const parts = String(value ?? "").split(",");
+    return {
+      measurement: parts[0] || "",
+      quality: parts[1] || "",
+      source: parts[2] || "",
+      observationTime: parts[3] || "",
+    };
+  }
+
+  function parseNoaaRow(row) {
+    const precipitationAttributes = noaaAttributes(row.PRCP_ATTRIBUTES);
+    const trace = String(row.PRCP ?? "").trim().toUpperCase() === "T" || precipitationAttributes.measurement === "T";
+    const windValues = [noaaNumber(row.WSF2), noaaNumber(row.WSF5)].filter(Number.isFinite);
+    const qualityFlags = {};
+    ["TMAX", "TMIN", "PRCP", "AWND", "WSF2", "WSF5"].forEach((key) => {
+      const attr = noaaAttributes(row[`${key}_ATTRIBUTES`]);
+      if (attr.quality) qualityFlags[key] = attr.quality;
     });
     return {
-      dataset: "historical-weather-best-match",
-      daily: parseDaily(payload),
+      date: String(row.DATE).slice(0, 10),
+      weather_code: null,
+      temperature_max_c: noaaNumber(row.TMAX),
+      temperature_min_c: noaaNumber(row.TMIN),
+      precipitation_sum_mm: trace ? 0 : noaaNumber(row.PRCP),
+      precipitation_trace: trace,
+      precipitation_probability_max_pct: null,
+      wind_speed_mean_kmh: noaaNumber(row.AWND) == null ? null : noaaNumber(row.AWND) * 3.6,
+      wind_speed_max_kmh: windValues.length ? Math.max(...windValues) * 3.6 : null,
+      quality_flags: qualityFlags,
+    };
+  }
+
+  function yearChunks(start, end) {
+    const chunks = [];
+    let current = start;
+    while (compareIso(current, end) <= 0) {
+      const year = dateParts(current).year;
+      const chunkEnd = compareIso(`${year}-12-31`, end) < 0 ? `${year}-12-31` : end;
+      chunks.push([current, chunkEnd]);
+      current = addDays(chunkEnd, 1);
+    }
+    return chunks;
+  }
+
+  async function queryHistorical(start, end, progress = () => {}) {
+    const effectiveStart = compareIso(start, config.observedStation.recordStart) < 0
+      ? config.observedStation.recordStart
+      : start;
+    const rows = [];
+    const chunks = compareIso(effectiveStart, end) <= 0 ? yearChunks(effectiveStart, end) : [];
+    for (let index = 0; index < chunks.length; index += 1) {
+      const [chunkStart, chunkEnd] = chunks[index];
+      progress(`Consultando observaciones NOAA ${index + 1} de ${chunks.length}: ${chunkStart} a ${chunkEnd}`);
+      const payload = await rawJsonFetch(endpoints.noaa, {
+        dataset: "daily-summaries",
+        stations: config.observedStation.id,
+        startDate: chunkStart,
+        endDate: chunkEnd,
+        dataTypes: "TMAX,TMIN,PRCP,AWND,WSF2,WSF5",
+        format: "json",
+        units: "metric",
+        includeAttributes: "true",
+        includeStationName: "true",
+        includeStationLocation: "true",
+      });
+      if (!Array.isArray(payload)) throw new Error("NOAA/NCEI devolvió un formato inesperado.");
+      rows.push(...payload.map(parseNoaaRow));
+    }
+    const byDate = new Map(rows.map((row) => [row.date, row]));
+    const daily = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+    const requestedDays = daysInclusive(start, end);
+    const missingDates = [];
+    for (let index = 0; index < requestedDays; index += 1) {
+      const target = addDays(start, index);
+      if (!byDate.has(target)) missingDates.push(target);
+    }
+    return {
+      dataset: "GHCN-Daily Daily Summaries",
+      station_id: config.observedStation.id,
+      station_name: config.observedStation.name,
+      station_latitude: config.observedStation.latitude,
+      station_longitude: config.observedStation.longitude,
+      station_distance_from_target_km: config.observedStation.distanceFromTargetKm,
+      station_record_start: config.observedStation.recordStart,
+      coverage_start: daily[0]?.date ?? null,
+      coverage_end: daily.at(-1)?.date ?? null,
+      requested_days: requestedDays,
+      returned_days: daily.length,
+      missing_dates: missingDates,
+      daily,
     };
   }
 
@@ -345,9 +440,6 @@
   function validate(start, end, mode) {
     if (!start || !end) throw new Error("Completá ambas fechas.");
     if (compareIso(end, start) < 0) throw new Error("La fecha hasta no puede ser anterior a la fecha desde.");
-    if (daysInclusive(start, end) > config.maxWindowDays) {
-      throw new Error(`El período puede tener como máximo ${config.maxWindowDays} días.`);
-    }
     const today = orlandoToday();
     if (mode === "historical" && compareIso(end, today) >= 0) {
       throw new Error("La consulta histórica solo admite fechas anteriores a hoy.");
@@ -384,52 +476,77 @@
     return `<article class="summary-card"><small>${label}</small><strong>${value}</strong>${detail ? `<small>${detail}</small>` : ""}</article>`;
   }
 
+  function sampledRows(rows, maximum = 160) {
+    if (rows.length <= maximum) return rows;
+    const step = (rows.length - 1) / (maximum - 1);
+    return Array.from({ length: maximum }, (_, index) => rows[Math.round(index * step)]);
+  }
+
   function createTemperatureChart(rows, maxKey, minKey) {
-    if (!rows.length) return "";
+    const chartRows = sampledRows(rows).filter((row) => Number.isFinite(row[maxKey]) || Number.isFinite(row[minKey]));
+    if (!chartRows.length) return "";
     const width = 900;
     const height = 240;
     const pad = { left: 44, right: 18, top: 18, bottom: 36 };
-    const values = rows.flatMap((row) => [row[maxKey], row[minKey]]).filter(Number.isFinite);
+    const values = chartRows.flatMap((row) => [row[maxKey], row[minKey]]).filter(Number.isFinite);
     if (!values.length) return "";
     const minimum = Math.floor(Math.min(...values) - 2);
     const maximum = Math.ceil(Math.max(...values) + 2);
-    const x = (index) => pad.left + index * ((width - pad.left - pad.right) / Math.max(rows.length - 1, 1));
+    const x = (index) => pad.left + index * ((width - pad.left - pad.right) / Math.max(chartRows.length - 1, 1));
     const y = (value) => pad.top + (maximum - value) * ((height - pad.top - pad.bottom) / Math.max(maximum - minimum, 1));
-    const maxPoints = rows.map((row, index) => `${x(index)},${y(row[maxKey])}`).join(" ");
-    const minPoints = rows.map((row, index) => `${x(index)},${y(row[minKey])}`).join(" ");
+    const points = (key) => chartRows.flatMap((row, index) => Number.isFinite(row[key]) ? [`${x(index)},${y(row[key])}`] : []).join(" ");
     const grid = [minimum, Math.round((minimum + maximum) / 2), maximum].map((value) => `
       <line class="chart-grid" x1="${pad.left}" y1="${y(value)}" x2="${width - pad.right}" y2="${y(value)}"></line>
       <text class="chart-label" x="4" y="${y(value) + 4}">${value}°</text>
     `).join("");
-    const labels = rows.map((row, index) => `
+    const labelEvery = Math.max(1, Math.ceil(chartRows.length / 12));
+    const labels = chartRows.map((row, index) => index % labelEvery === 0 || index === chartRows.length - 1 ? `
       <text class="chart-label" text-anchor="middle" x="${x(index)}" y="${height - 10}">${row.date.slice(5).replace("-", "/")}</text>
-    `).join("");
+    ` : "").join("");
     return `
       <div class="chart-card">
         <h3>Evolución de temperaturas</h3>
         <div class="chart-legend"><span><i class="legend-dot legend-max"></i>Máxima</span><span><i class="legend-dot legend-min"></i>Mínima</span></div>
         <svg class="temperature-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Gráfico de temperaturas máximas y mínimas">
           ${grid}
-          <polyline class="chart-max" points="${maxPoints}"></polyline>
-          <polyline class="chart-min" points="${minPoints}"></polyline>
+          <polyline class="chart-max" points="${points(maxKey)}"></polyline>
+          <polyline class="chart-min" points="${points(minKey)}"></polyline>
           ${labels}
         </svg>
+        ${rows.length > chartRows.length ? `<p class="muted">El gráfico muestra una muestra de ${chartRows.length} puntos. El JSON conserva los ${rows.length} días.</p>` : ""}
       </div>`;
   }
 
   function dailyTable(rows, options = {}) {
     const probability = options.probability !== false;
+    const observed = options.observed === true;
     return `<div class="table-wrap"><table>
-      <thead><tr><th>Fecha</th><th>Condición</th><th class="numeric">Máx.</th><th class="numeric">Mín.</th><th class="numeric">Lluvia</th>${probability ? '<th class="numeric">Prob.</th>' : ""}<th class="numeric">Viento</th></tr></thead>
+      <thead><tr><th>Fecha</th>${observed ? "" : "<th>Condición</th>"}<th class="numeric">Máx.</th><th class="numeric">Mín.</th><th class="numeric">Lluvia</th>${probability ? '<th class="numeric">Prob.</th>' : ""}<th class="numeric">Viento</th></tr></thead>
       <tbody>${rows.map((day) => `<tr>
         <td>${dateLabel(day.date)}</td>
-        <td>${condition(day.weather_code)}</td>
+        ${observed ? "" : `<td>${condition(day.weather_code)}</td>`}
         <td class="numeric">${formatNumber(day.temperature_max_c)} °C</td>
         <td class="numeric">${formatNumber(day.temperature_min_c)} °C</td>
-        <td class="numeric">${formatNumber(day.precipitation_sum_mm)} mm</td>
+        <td class="numeric">${day.precipitation_trace ? "Traza" : day.precipitation_sum_mm == null ? "Sin dato" : `${formatNumber(day.precipitation_sum_mm)} mm`}</td>
         ${probability ? `<td class="numeric">${day.precipitation_probability_max_pct == null ? "—" : `${formatNumber(day.precipitation_probability_max_pct, 0)}%`}</td>` : ""}
         <td class="numeric">${formatNumber(day.wind_speed_max_kmh)} km/h</td>
       </tr>`).join("")}</tbody>
+    </table></div>`;
+  }
+
+  function monthlyObservedTable(rows) {
+    const groups = new Map();
+    rows.forEach((row) => {
+      const key = row.date.slice(0, 7);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(row);
+    });
+    return `<div class="table-wrap"><table>
+      <thead><tr><th>Mes</th><th class="numeric">Días</th><th class="numeric">Máx. media</th><th class="numeric">Mín. media</th><th class="numeric">Lluvia</th><th class="numeric">Días lluvia</th><th class="numeric">Trazas</th></tr></thead>
+      <tbody>${[...groups.entries()].map(([month, values]) => {
+        const rain = values.map((row) => row.precipitation_sum_mm).filter(Number.isFinite);
+        return `<tr><td>${month}</td><td class="numeric">${values.length}</td><td class="numeric">${formatNumber(average(values.map((row) => row.temperature_max_c)))} °C</td><td class="numeric">${formatNumber(average(values.map((row) => row.temperature_min_c)))} °C</td><td class="numeric">${formatNumber(rain.length ? rain.reduce((sum, value) => sum + value, 0) : null)} mm</td><td class="numeric">${rain.filter((value) => value >= 0.1).length}</td><td class="numeric">${values.filter((row) => row.precipitation_trace).length}</td></tr>`;
+      }).join("")}</tbody>
     </table></div>`;
   }
 
@@ -437,20 +554,23 @@
     const rows = result.daily;
     const averageMax = average(rows.map((row) => row.temperature_max_c));
     const averageMin = average(rows.map((row) => row.temperature_min_c));
-    const totalRain = rows.reduce((sum, row) => sum + row.precipitation_sum_mm, 0);
-    const rainyDays = rows.filter((row) => row.precipitation_sum_mm >= 0.1).length;
-    elements.resultKicker.textContent = "Qué ocurrió realmente";
+    const rainValues = rows.map((row) => row.precipitation_sum_mm).filter(Number.isFinite);
+    const totalRain = rainValues.length ? rainValues.reduce((sum, value) => sum + value, 0) : null;
+    const rainyDays = rainValues.filter((value) => value >= 0.1).length;
+    const traceDays = rows.filter((row) => row.precipitation_trace).length;
+    elements.resultKicker.textContent = "Observado en estación oficial";
     elements.resultTitle.textContent = `${dateLabel(result.requested_start)} al ${dateLabel(result.requested_end)}`;
     elements.resultContent.innerHTML = `
       <div class="summary-grid">
         ${summaryCard("Máxima promedio", `${formatNumber(averageMax)} °C`)}
         ${summaryCard("Mínima promedio", `${formatNumber(averageMin)} °C`)}
-        ${summaryCard("Lluvia acumulada", `${formatNumber(totalRain)} mm`)}
-        ${summaryCard("Días con lluvia", `${rainyDays} de ${rows.length}`)}
+        ${summaryCard("Lluvia observada", totalRain == null ? "Sin dato" : `${formatNumber(totalRain)} mm`)}
+        ${summaryCard("Cobertura", `${result.returned_days} de ${result.requested_days} días`, `${rainyDays} con lluvia · ${traceDays} con traza`)}
       </div>
-      <div class="notice">Fuente utilizada: <strong>${result.dataset}</strong>. Es una reconstrucción meteorológica modelada, no una estación ubicada dentro de Disney.</div>
+      <div class="notice"><strong>Fuente:</strong> NOAA/NCEI · ${result.dataset} · <strong>${result.station_name} (${result.station_id})</strong>, a unos ${formatNumber(result.station_distance_from_target_km)} km de Disney. Son mediciones reales en KMCO, no dentro de los parques.</div>
+      ${result.missing_dates.length ? `<div class="notice warning"><strong>Cobertura incompleta:</strong> faltan ${result.missing_dates.length} fechas. Los datos ausentes no se convierten en cero ni se completan con un modelo.</div>` : ""}
       ${createTemperatureChart(rows, "temperature_max_c", "temperature_min_c")}
-      ${dailyTable(rows, { probability: false })}`;
+      ${rows.length > 180 ? `<h3>Resumen mensual</h3>${monthlyObservedTable(rows)}<p class="muted">El JSON descargado conserva los ${rows.length} registros diarios.</p>` : dailyTable(rows, { probability: false, observed: true })}`;
   }
 
   function seasonalTable(rows) {
@@ -510,24 +630,30 @@
           : summaryCard("Lluvia prevista acumulada", `${formatNumber(predictedRain)} mm`)}
       </div>
       <div class="notice warning"><strong>Lectura correcta:</strong> solamente los días hasta ${dateLabel(result.forecast_available_through)} tienen pronóstico meteorológico diario. Los demás datos son tendencias o antecedentes.</div>
-      ${result.live_forecast.length ? `<section class="source-section"><h3>Pronóstico diario vigente <span class="source-pill">0–15 días</span></h3>${createTemperatureChart(result.live_forecast, "temperature_max_c", "temperature_min_c")}${dailyTable(result.live_forecast)}</section>` : ""}
+      ${result.live_forecast.length ? `<section class="source-section"><h3>Pronóstico diario vigente <span class="source-pill">hasta 16 días</span></h3>${createTemperatureChart(result.live_forecast, "temperature_max_c", "temperature_min_c")}${dailyTable(result.live_forecast)}</section>` : ""}
       ${result.seasonal_estimate.length ? `<section class="source-section"><h3>Tendencia estacional <span class="source-pill">Ensamble probabilístico</span></h3><p class="muted">El rango P10–P90 representa la dispersión de los miembros del modelo; no es una promesa para cada fecha.</p>${seasonalTable(result.seasonal_estimate)}</section>` : ""}
       ${result.climate_reference.length ? `<section class="source-section"><h3>Referencia climática <span class="source-pill">${result.climate_reference_years.length} años</span></h3><p class="muted">Promedios de las mismas fechas durante ${result.climate_reference_years[0]}–${result.climate_reference_years.at(-1)}.</p>${climateTable(result.climate_reference)}</section>` : ""}`;
   }
 
   function historicalMarkdown(result) {
     const lines = [
-      "# Histórico meteorológico — Disney Orlando",
+      "# Observaciones meteorológicas oficiales — Orlando",
       "",
-      `Período: ${result.requested_start} al ${result.requested_end}`,
-      `Fuente: ${result.dataset}`,
+      `Período solicitado: ${result.requested_start} al ${result.requested_end}`,
+      `Estación: ${result.station_name} (${result.station_id})`,
+      `Fuente: NOAA/NCEI — ${result.dataset}`,
+      `Distancia aproximada a Disney: ${formatNumber(result.station_distance_from_target_km)} km`,
+      `Cobertura: ${result.returned_days} de ${result.requested_days} días`,
       "",
-      "| Fecha | Condición | Máx. °C | Mín. °C | Lluvia mm | Viento km/h |",
-      "|---|---|---:|---:|---:|---:|",
-      ...result.daily.map((day) => `| ${day.date} | ${condition(day.weather_code)} | ${formatNumber(day.temperature_max_c)} | ${formatNumber(day.temperature_min_c)} | ${formatNumber(day.precipitation_sum_mm)} | ${formatNumber(day.wind_speed_max_kmh)} |`),
+      "> Son observaciones reales en KMCO, no mediciones dentro de Walt Disney World. Los faltantes no se reemplazan por cero ni por un modelo.",
       "",
-      "> Los datos históricos son una referencia modelada, no una estación dentro de Walt Disney World.",
     ];
+    if (result.daily.length <= 180) {
+      lines.push("| Fecha | Máx. °C | Mín. °C | Precipitación mm | Viento máx. km/h |", "|---|---:|---:|---:|---:|");
+      result.daily.forEach((day) => lines.push(`| ${day.date} | ${formatNumber(day.temperature_max_c)} | ${formatNumber(day.temperature_min_c)} | ${day.precipitation_trace ? "Traza" : day.precipitation_sum_mm == null ? "Sin dato" : formatNumber(day.precipitation_sum_mm)} | ${formatNumber(day.wind_speed_max_kmh)} |`));
+    } else {
+      lines.push("El archivo JSON conserva todos los registros diarios. La interfaz muestra un resumen mensual para períodos extensos.");
+    }
     return lines.join("\n");
   }
 
@@ -561,7 +687,7 @@
     const days = result.query_type === "forecast_snapshot" ? result.daily : result.live_forecast;
     if (!days?.length) return null;
     return {
-      schema_version: "2.0",
+      schema_version: "4.0",
       query_type: "forecast_snapshot",
       provider: "open-meteo",
       model: "best_match",
@@ -631,45 +757,53 @@
     }).join("");
   }
 
+  function metricError(forecast, actual) {
+    if (!Number.isFinite(forecast) || !Number.isFinite(actual)) return null;
+    const signed = forecast - actual;
+    return { signed, absolute: Math.abs(signed) };
+  }
+
   async function compareSnapshot(snapshot) {
     const pastDays = snapshot.daily.filter((day) => compareIso(day.date, orlandoToday()) < 0);
     if (!pastDays.length) throw new Error("La captura todavía no tiene fechas finalizadas para comparar.");
-    setLoading(true, "Recuperando lo ocurrido para comparar…");
+    setLoading(true, "Recuperando observaciones oficiales para comparar…");
     const start = pastDays[0].date;
     const end = pastDays.at(-1).date;
-    const historical = await queryHistorical(start, end);
+    const historical = await queryHistorical(start, end, (detail) => {
+      elements.loadingDetail.textContent = detail;
+    });
     const actualByDate = new Map(historical.daily.map((day) => [day.date, day]));
     const rows = pastDays.flatMap((forecast) => {
       const actual = actualByDate.get(forecast.date);
       if (!actual) return [];
-      const maxSigned = forecast.temperature_max_c - actual.temperature_max_c;
-      const minSigned = forecast.temperature_min_c - actual.temperature_min_c;
-      const rainSigned = forecast.precipitation_sum_mm - actual.precipitation_sum_mm;
-      const forecastRain = forecast.precipitation_sum_mm >= 0.1;
-      const actualRain = actual.precipitation_sum_mm >= 0.1;
+      const forecastRain = Number.isFinite(forecast.precipitation_sum_mm) ? forecast.precipitation_sum_mm >= 0.1 : null;
+      const actualRain = Number.isFinite(actual.precipitation_sum_mm) ? actual.precipitation_sum_mm >= 0.1 : null;
       return [{
         target_date: forecast.date,
         lead_days: Math.round((parseIso(forecast.date) - parseIso(snapshot.captured_at_utc.slice(0, 10))) / 86400000),
         forecast,
         actual,
-        temperature_max_error_c: { signed: maxSigned, absolute: Math.abs(maxSigned) },
-        temperature_min_error_c: { signed: minSigned, absolute: Math.abs(minSigned) },
-        precipitation_error_mm: { signed: rainSigned, absolute: Math.abs(rainSigned) },
+        temperature_max_error_c: metricError(forecast.temperature_max_c, actual.temperature_max_c),
+        temperature_min_error_c: metricError(forecast.temperature_min_c, actual.temperature_min_c),
+        precipitation_error_mm: metricError(forecast.precipitation_sum_mm, actual.precipitation_sum_mm),
         rain_event_forecast: forecastRain,
         rain_event_actual: actualRain,
-        rain_event_correct: forecastRain === actualRain,
+        rain_event_correct: forecastRain === null || actualRain === null ? null : forecastRain === actualRain,
       }];
     });
     currentComparison = {
-      schema_version: "2.0",
+      schema_version: "4.0",
       query_type: "comparison",
-      provider: "open-meteo",
+      provider: "open-meteo-vs-noaa-ncei",
       location_name: config.locationName,
       requested_start: start,
       requested_end: end,
       generated_at_utc: new Date().toISOString(),
       snapshot_captured_at_utc: snapshot.captured_at_utc,
       actual_dataset: historical.dataset,
+      actual_station_id: historical.station_id,
+      actual_station_name: historical.station_name,
+      actual_station_distance_from_target_km: historical.station_distance_from_target_km,
       daily: rows,
     };
     renderComparison(currentComparison);
@@ -678,21 +812,22 @@
   }
 
   function renderComparison(report) {
-    const maxMae = average(report.daily.map((row) => row.temperature_max_error_c.absolute));
-    const minMae = average(report.daily.map((row) => row.temperature_min_error_c.absolute));
-    const rainMae = average(report.daily.map((row) => row.precipitation_error_mm.absolute));
-    const rainAccuracy = 100 * report.daily.filter((row) => row.rain_event_correct).length / report.daily.length;
+    const maxMae = average(report.daily.map((row) => row.temperature_max_error_c?.absolute));
+    const minMae = average(report.daily.map((row) => row.temperature_min_error_c?.absolute));
+    const rainMae = average(report.daily.map((row) => row.precipitation_error_mm?.absolute));
+    const comparableRain = report.daily.filter((row) => row.rain_event_correct !== null);
+    const rainAccuracy = comparableRain.length ? 100 * comparableRain.filter((row) => row.rain_event_correct).length / comparableRain.length : null;
     elements.comparisonContent.innerHTML = `
       <div class="summary-grid">
         ${summaryCard("MAE máxima", `${formatNumber(maxMae, 2)} °C`)}
         ${summaryCard("MAE mínima", `${formatNumber(minMae, 2)} °C`)}
         ${summaryCard("MAE lluvia", `${formatNumber(rainMae, 2)} mm`)}
-        ${summaryCard("Acierto lluvia", `${formatNumber(rainAccuracy, 0)}%`)}
+        ${summaryCard("Acierto lluvia", rainAccuracy == null ? "Sin datos" : `${formatNumber(rainAccuracy, 0)}%`)}
       </div>
-      <div class="notice">Pronóstico capturado el <strong>${new Date(report.snapshot_captured_at_utc).toLocaleString("es-AR")}</strong>. Realidad de referencia: <strong>${report.actual_dataset}</strong>.</div>
+      <div class="notice">Pronóstico para Disney capturado el <strong>${new Date(report.snapshot_captured_at_utc).toLocaleString("es-AR")}</strong>. Observación: <strong>${report.actual_station_name} (${report.actual_station_id})</strong>, a unos ${formatNumber(report.actual_station_distance_from_target_km)} km. La lluvia puede diferir localmente.</div>
       <div class="table-wrap"><table>
-        <thead><tr><th>Fecha</th><th class="numeric">Anticipación</th><th class="numeric">Máx. pron./real</th><th class="numeric">Mín. pron./real</th><th class="numeric">Lluvia pron./real</th><th>Acierto lluvia</th></tr></thead>
-        <tbody>${report.daily.map((row) => `<tr><td>${dateLabel(row.target_date)}</td><td class="numeric">${row.lead_days} días</td><td class="numeric">${formatNumber(row.forecast.temperature_max_c)}/${formatNumber(row.actual.temperature_max_c)} °C</td><td class="numeric">${formatNumber(row.forecast.temperature_min_c)}/${formatNumber(row.actual.temperature_min_c)} °C</td><td class="numeric">${formatNumber(row.forecast.precipitation_sum_mm)}/${formatNumber(row.actual.precipitation_sum_mm)} mm</td><td>${row.rain_event_correct ? "Sí" : "No"}</td></tr>`).join("")}</tbody>
+        <thead><tr><th>Fecha</th><th class="numeric">Anticipación</th><th class="numeric">Máx. pron./obs.</th><th class="numeric">Mín. pron./obs.</th><th class="numeric">Lluvia pron./obs.</th><th>Acierto lluvia</th></tr></thead>
+        <tbody>${report.daily.map((row) => `<tr><td>${dateLabel(row.target_date)}</td><td class="numeric">${row.lead_days} días</td><td class="numeric">${formatNumber(row.forecast.temperature_max_c)}/${formatNumber(row.actual.temperature_max_c)} °C</td><td class="numeric">${formatNumber(row.forecast.temperature_min_c)}/${formatNumber(row.actual.temperature_min_c)} °C</td><td class="numeric">${formatNumber(row.forecast.precipitation_sum_mm)}/${row.actual.precipitation_sum_mm == null ? "Sin dato" : formatNumber(row.actual.precipitation_sum_mm)} mm</td><td>${row.rain_event_correct === null ? "Sin dato" : row.rain_event_correct ? "Sí" : "No"}</td></tr>`).join("")}</tbody>
       </table></div>`;
   }
 
@@ -709,20 +844,33 @@
       const mode = resolveMode(selectedMode, start, end);
       setLoading(true, "Validando disponibilidad de datos…");
       if (mode === "historical") {
-        elements.loadingDetail.textContent = "Recuperando el histórico del período…";
-        const historical = await queryHistorical(start, end);
+        elements.loadingDetail.textContent = "Recuperando observaciones oficiales NOAA…";
+        const historical = await queryHistorical(start, end, (detail) => {
+          elements.loadingDetail.textContent = detail;
+        });
         currentResult = {
-          schema_version: "2.0",
+          schema_version: "4.0",
           query_type: "historical",
-          provider: "open-meteo",
+          provider: "noaa-ncei",
           dataset: historical.dataset,
           location_name: config.locationName,
           latitude: config.latitude,
           longitude: config.longitude,
           timezone: config.timezone,
+          station_id: historical.station_id,
+          station_name: historical.station_name,
+          station_latitude: historical.station_latitude,
+          station_longitude: historical.station_longitude,
+          station_distance_from_target_km: historical.station_distance_from_target_km,
+          station_record_start: historical.station_record_start,
           requested_start: start,
           requested_end: end,
           retrieved_at_utc: new Date().toISOString(),
+          coverage_start: historical.coverage_start,
+          coverage_end: historical.coverage_end,
+          requested_days: historical.requested_days,
+          returned_days: historical.returned_days,
+          missing_dates: historical.missing_dates,
           daily: historical.daily,
         };
         currentMarkdown = historicalMarkdown(currentResult);
@@ -736,7 +884,7 @@
         elements.loadingDetail.textContent = "Capturando el pronóstico vigente…";
         const days = await queryForecast(start, end);
         currentResult = {
-          schema_version: "2.0",
+          schema_version: "4.0",
           query_type: "forecast_snapshot",
           provider: "open-meteo",
           model: "best_match",
@@ -795,7 +943,7 @@
           elements.loadingDetail.textContent = detail;
         });
         currentResult = {
-          schema_version: "2.0",
+          schema_version: "4.0",
           query_type: "future_outlook",
           provider: "open-meteo",
           location_name: config.locationName,
@@ -924,7 +1072,7 @@
 
   const today = orlandoToday();
   elements.start.value = addDays(today, 1);
-  elements.end.value = addDays(today, 14);
+  elements.end.value = addDays(today, 30);
   setupRepositoryLink();
   renderSnapshots();
   loadRepositoryLatest();

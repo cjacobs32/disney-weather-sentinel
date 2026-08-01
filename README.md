@@ -1,266 +1,113 @@
-# Disney Weather Sentinel 2.0
+# Disney Weather Sentinel 4.0
 
-Sistema de costo cero para consultar el clima de Walt Disney World / Orlando por períodos de hasta 15 días. No funciona como un monitor permanente: el uso normal es manual, desde una interfaz web o desde GitHub Actions.
+Aplicación de costo cero para consultar el tiempo de Orlando bajo demanda, guardar pronósticos y compararlos posteriormente con observaciones oficiales.
 
-## Qué resuelve
+## Cambios de esta versión
 
-1. **Histórico:** permite consultar qué ocurrió en un período pasado, por ejemplo del 1 al 15 de noviembre de 2025.
-2. **Futuro:** muestra la mejor información disponible según la distancia de las fechas:
-   - pronóstico meteorológico diario cuando la fecha está dentro de los próximos 16 días;
-   - tendencia estacional de ensamble para fechas más lejanas, dentro del horizonte disponible;
-   - referencia climática calculada con las mismas fechas de años anteriores.
-3. **Captura:** conserva el pronóstico vigente antes de un viaje.
-4. **Comparación:** cuando el período termina, cruza la captura guardada con el histórico de referencia y calcula errores.
+1. **Histórico observado:** el modo histórico usa NOAA/NCEI GHCN-Daily, estación Orlando International Airport (`USW00012815`, KMCO). Ya no presenta un reanálisis modelado como si fuera una medición real.
+2. **Rango libre:** no existe un límite artificial de 15 días. Se puede consultar un día, un mes, un año o varios años. Para períodos extensos, la interfaz resume por mes y el JSON conserva todos los registros diarios.
 
-## Componentes
+## Qué significa “observado”
 
-```text
-Navegador / GitHub Pages
-  ├─ consulta directa a Open-Meteo
-  ├─ capturas en almacenamiento local del navegador
-  ├─ exportación/importación JSON
-  └─ comparación interactiva
+Los datos históricos son mediciones de una estación física:
 
-GitHub Actions — ejecución exclusivamente manual
-  ├─ recibe operación y fechas
-  ├─ ejecuta Python tipado
-  ├─ genera JSON y Markdown
-  ├─ muestra el informe en el resumen del workflow
-  └─ versiona el resultado en Git
+- Fuente: NOAA / NCEI.
+- Dataset: GHCN-Daily Daily Summaries.
+- Estación: Orlando International Airport, KMCO.
+- Identificador: `USW00012815`.
+- Distancia aproximada a Walt Disney World: 24,5 km.
 
-Persistencia
-  ├─ data/queries/historical/
-  ├─ data/queries/future/
-  ├─ data/forecast_snapshots/
-  ├─ data/comparisons/
-  ├─ reports/
-  └─ docs/generated/       última consulta visible en el frontend
-```
+No son mediciones dentro de Magic Kingdom, EPCOT, Hollywood Studios o Animal Kingdom. La temperatura suele ser una referencia útil para Orlando; la lluvia puede variar considerablemente entre KMCO y Disney.
 
-No hay servidor, base de datos, API key ni proceso ejecutándose continuamente.
+Los valores ausentes quedan como **Sin dato**. Una traza de precipitación se conserva como **Traza**. No se reemplazan faltantes con cero ni con un modelo.
 
-## Frontend
+## Stack gratuito
 
-La aplicación estática se encuentra en `docs/` y no utiliza frameworks, CDN ni servicios externos adicionales.
-
-### Publicarlo sin costo con GitHub Pages
-
-Para garantizar costo cero con GitHub Free, usar un repositorio **público**:
-
-1. Subir el contenido del proyecto a GitHub.
-2. Abrir `Settings > Pages`.
-3. En `Build and deployment`, elegir `Deploy from a branch`.
-4. Seleccionar la rama principal y la carpeta `/docs`.
-5. Guardar.
-
-GitHub mostrará la URL del sitio. No hace falta crear un workflow de despliegue.
-
-> GitHub Pages en repositorios privados depende del plan de GitHub. Si se quiere mantener el repositorio privado sin asumir costos, el frontend puede ejecutarse localmente.
-
-### Ejecutarlo localmente
-
-Desde la raíz del proyecto:
-
-```bash
-python -m http.server 8080 --directory docs
-```
-
-Abrir `http://localhost:8080`.
-
-No conviene abrir `index.html` directamente con `file://`, porque algunos navegadores restringen consultas de red y archivos JavaScript locales.
-
-### Persistencia del navegador
-
-Las capturas creadas desde el frontend se guardan en `localStorage` del dispositivo y navegador actual. Por eso la interfaz permite:
-
-- descargar cada captura como JSON;
-- importar nuevamente una captura;
-- comparar una captura cuando sus fechas ya finalizaron.
-
-Para conservar una captura de forma centralizada y versionada, usar la operación manual `capture` de GitHub Actions.
-
-## GitHub Actions manual
-
-El workflow activo es:
-
-```text
-.github/workflows/weather-query.yml
-```
-
-No contiene `schedule` ni cron.
-
-### Habilitar escritura de resultados
-
-1. Abrir `Settings > Actions > General`.
-2. Ir a `Workflow permissions`.
-3. Seleccionar `Read and write permissions`.
-4. Guardar.
-
-El token utilizado es `GITHUB_TOKEN`, generado automáticamente por GitHub. No se configura ningún secret.
-
-### Ejecutar una consulta
-
-1. Abrir la pestaña `Actions`.
-2. Seleccionar `Consulta meteorológica Disney`.
-3. Pulsar `Run workflow`.
-4. Completar:
-   - `operation`;
-   - `start_date`;
-   - `end_date`;
-   - `climate_years`.
-5. Ejecutar.
-
-Las operaciones disponibles son:
-
-| Operación | Uso |
-|---|---|
-| `historical` | Saber qué ocurrió en un período pasado. |
-| `future` | Obtener pronóstico, tendencia y referencia según disponibilidad. |
-| `capture` | Guardar el pronóstico actual para fechas dentro del horizonte diario. |
-| `compare` | Comparar las capturas existentes con lo ocurrido después del período. |
-
-El período inclusivo no puede superar 15 días.
-
-### Ejemplos
-
-Histórico de noviembre de 2025:
-
-```text
-operation: historical
-start_date: 2025-11-01
-end_date: 2025-11-15
-```
-
-Perspectiva para noviembre de 2026:
-
-```text
-operation: future
-start_date: 2026-11-01
-end_date: 2026-11-15
-climate_years: 10
-```
-
-Capturar un pronóstico antes del viaje:
-
-```text
-operation: capture
-start_date: 2026-11-01
-end_date: 2026-11-15
-```
-
-La captura solo funcionará cuando todas las fechas se encuentren dentro del horizonte diario disponible. Después de finalizar el viaje:
-
-```text
-operation: compare
-start_date: 2026-11-01
-end_date: 2026-11-15
-```
-
-## Ejecución por línea de comandos
-
-Requiere Python 3.12 o superior:
-
-```bash
-python -m venv .venv
-```
-
-Windows:
-
-```powershell
-.venv\Scripts\activate
-pip install -e ".[dev]"
-```
-
-Linux/macOS:
-
-```bash
-source .venv/bin/activate
-pip install -e ".[dev]"
-```
-
-Comandos:
-
-```bash
-disney-weather historical --start 2025-11-01 --end 2025-11-15
-
-disney-weather future --start 2026-11-01 --end 2026-11-15 --climate-years 10
-
-disney-weather capture --start 2026-11-01 --end 2026-11-15
-
-disney-weather compare --start 2026-11-01 --end 2026-11-15
-```
-
-## Fuentes meteorológicas
-
-El proveedor predeterminado es Open-Meteo y no requiere API key.
-
-- **Pronóstico diario:** modelos operativos `best_match`, hasta 16 días según disponibilidad del modelo.
-- **Histórico del período:** Historical Weather API con selección automática del mejor conjunto histórico disponible.
-- **Histórico y climatología:** ERA5-Land, usado para referencias consistentes entre años.
-- **Tendencia estacional:** ensambles ECMWF EC46/SEAS5 a través de la Seasonal Forecast API.
-
-## Interpretación obligatoria
-
-- Un pronóstico diario no existe para cualquier fecha futura. El sistema no inventa detalle diario fuera del horizonte disponible.
-- La tendencia estacional es probabilística y de resolución regional. No permite afirmar que lloverá un día concreto.
-- La referencia climática describe antecedentes de años anteriores, no el pronóstico del año consultado.
-- El “clima real” del sistema es una referencia modelada. No es una medición de una estación física instalada dentro de Walt Disney World.
-- La precipitación local puede diferir considerablemente dentro del área de Orlando.
-
-## Automatización opcional
-
-Se incluye un ejemplo desactivado en:
-
-```text
-examples/optional-scheduled-capture.yml.example
-```
-
-No se ejecuta mientras permanezca fuera de `.github/workflows/` y conserve la extensión `.example`. Solo debe copiarse y adaptarse si en algún momento se decide capturar automáticamente un período concreto.
-
-## Costos y credenciales
-
-| Componente | Costo | Tarjeta | Secret |
-|---|---:|:---:|:---:|
-| Open-Meteo no comercial dentro de límites | US$ 0 | No | No |
-| Frontend estático local | US$ 0 | No | No |
-| GitHub Pages en repositorio público | US$ 0 | No | No |
-| GitHub Actions manual | Dentro de la asignación gratuita | No, si no se configura facturación | No |
-| JSON y Markdown en Git | US$ 0 | No | No |
-
-No agregar una tarjeta ni habilitar gasto adicional de Actions si la exigencia es impedir cualquier cargo.
-
-## Validaciones
-
-```bash
-ruff check .
-mypy src
-pytest -q
-node --check docs/assets/app.js
-```
-
-El workflow ejecuta Ruff, Mypy y Pytest antes de consultar datos o realizar commits.
+- GitHub Pages para el frontend.
+- GitHub Actions solo bajo demanda.
+- NOAA/NCEI Access Data Service sin API key.
+- Open-Meteo sin API key para pronóstico, tendencia estacional y referencia climática.
+- Archivos JSON y Markdown versionados en Git.
+- Sin servidor, base de datos, tarjeta ni cron activo.
 
 ## Estructura
 
 ```text
-.github/workflows/weather-query.yml
-src/disney_weather/
-  cli.py
-  config.py
-  models.py
-  provider.py
-  reporting.py
-  service.py
-  storage.py
-docs/
-  index.html
-  config.js
-  assets/
-    app.js
-    styles.css
-  generated/
-data/
-reports/
-tests/
-examples/
+.github/workflows/weather-query.yml  Workflow manual
+docs/                                Frontend para GitHub Pages
+src/disney_weather/                  Motor Python
+data/                                Resultados versionados
+reports/                             Informes Markdown
+tests/                               Pruebas
 ```
+
+## Publicación rápida
+
+1. Crear un repositorio público vacío.
+2. Subir el contenido de esta carpeta a la raíz del repositorio.
+3. Ir a `Settings → Actions → General → Workflow permissions` y elegir `Read and write permissions`.
+4. Ir a `Settings → Pages`.
+5. Elegir `Deploy from a branch`.
+6. Seleccionar rama `main` y carpeta `/docs`.
+7. Abrir la URL de GitHub Pages cuando termine la publicación.
+
+No hay Secrets que configurar.
+
+## Uso del frontend
+
+Elegir:
+
+- **Automática según las fechas**.
+- **Observado: qué midió una estación oficial**.
+- **Futuro: mejor información disponible**.
+- **Capturar pronóstico para comparar después**.
+
+Luego completar `Desde`, `Hasta` y presionar **Analizar período**.
+
+### Períodos históricos largos
+
+La consulta se divide internamente por años para reducir el tamaño de cada llamada a NOAA. Si el período supera 180 días:
+
+- la pantalla muestra un resumen mensual;
+- el gráfico usa una muestra visual;
+- el JSON descargado mantiene todos los días devueltos.
+
+La estación tiene cobertura desde 1952. Si se pide una fecha anterior, el sistema acepta el rango y declara las fechas sin cobertura.
+
+### Fechas futuras
+
+El selector permite cualquier rango, pero la disponibilidad meteorológica depende de los modelos:
+
+- hasta aproximadamente 16 días: pronóstico diario;
+- después: tendencia estacional, cuando está disponible;
+- cualquier fecha: referencia climática basada en años anteriores.
+
+El sistema no inventa valores diarios para fechas fuera del horizonte.
+
+## Uso desde GitHub Actions
+
+Abrir:
+
+```text
+Actions → Consulta meteorológica Disney → Run workflow
+```
+
+Operaciones:
+
+- `historical`: observaciones NOAA/NCEI.
+- `future`: pronóstico, tendencia y referencia climática.
+- `capture`: guarda el pronóstico vigente.
+- `compare`: compara capturas con observaciones de KMCO.
+
+No existe `schedule:` activo.
+
+## Validación local
+
+```bash
+python -m pip install -e ".[dev]"
+ruff check .
+mypy src
+pytest -q
+```
+
+La versión entregada incluye siete pruebas unitarias.

@@ -18,7 +18,7 @@ on:
         required: true
         type: string
       end_date:
-        description: Fecha hasta (YYYY-MM-DD, máximo 15 días)
+        description: Fecha hasta (YYYY-MM-DD)
         required: true
         type: string
       climate_years:

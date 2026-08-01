@@ -14,9 +14,9 @@
   <header class="site-header">
     <div class="shell header-content">
       <div>
-        <p class="eyebrow">ORLANDO · FLORIDA</p>
+        <p class="eyebrow">ORLANDO · FLORIDA · v4 OBSERVADO · RANGO LIBRE</p>
         <h1>Disney Weather Sentinel</h1>
-        <p class="header-copy">Consultas por período, capturas de pronóstico y comparación posterior con lo ocurrido.</p>
+        <p class="header-copy">Observaciones oficiales, pronósticos y comparación posterior, sin límite artificial de días.</p>
       </div>
       <div class="cost-badge" aria-label="Arquitectura de costo cero">
         <span>US$ 0</span>
@@ -30,7 +30,7 @@
       <div class="section-heading">
         <div>
           <p class="step">Consulta manual</p>
-          <h2 id="query-title">Elegí un período de hasta 15 días</h2>
+          <h2 id="query-title">Elegí el rango de fechas que necesites</h2>
         </div>
         <a id="actions-link" class="text-link hidden" href="#" target="_blank" rel="noreferrer">Ejecutar y guardar en GitHub</a>
       </div>
@@ -40,7 +40,7 @@
           Tipo de consulta
           <select id="query-mode" name="mode">
             <option value="auto">Automática según las fechas</option>
-            <option value="historical">Histórico: qué ocurrió</option>
+            <option value="historical">Observado: qué midió una estación oficial</option>
             <option value="future">Futuro: mejor información disponible</option>
             <option value="capture">Capturar pronóstico para comparar después</option>
           </select>
@@ -121,7 +121,7 @@
       <h2 id="interpret-title">No toda fecha futura tiene el mismo nivel de certeza</h2>
       <div class="information-grid">
         <article>
-          <span class="range-tag reliable">0–15 días</span>
+          <span class="range-tag reliable">Hasta 16 días</span>
           <h3>Pronóstico diario</h3>
           <p>Máximas, mínimas, precipitación y condiciones previstas con los modelos operativos actuales.</p>
         </article>
@@ -147,7 +147,7 @@
 
   <footer class="site-footer">
     <div class="shell">
-      <p>Datos meteorológicos: <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open‑Meteo</a>. El histórico y la referencia climática son productos modelados, no una estación física dentro del complejo.</p>
+      <p>Observaciones históricas: NOAA/NCEI, estación KMCO. Pronósticos y referencia climática: Open‑Meteo. Las observaciones son reales en el aeropuerto, no dentro de los parques.</p>
     </div>
   </footer>
 </body>

@@ -4,19 +4,16 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 from disney_weather.config import Settings
 from disney_weather.models import DailyWeather, ForecastSnapshot
-from disney_weather.provider import WeatherProvider
-from disney_weather.service import WeatherQueryService, parse_daily
+from disney_weather.provider import JsonObject, JsonRows, WeatherProvider
+from disney_weather.service import WeatherQueryService, parse_daily, parse_noaa_row
 from disney_weather.storage import JsonRepository
 
 
-JsonObject = dict[str, Any]
-
-
-def payload_for(start_date: date, end_date: date, *, year_sensitive: bool = False) -> JsonObject:
+def open_meteo_payload(
+    start_date: date, end_date: date, *, year_sensitive: bool = False
+) -> JsonObject:
     dates: list[str] = []
     maximums: list[float] = []
     minimums: list[float] = []
@@ -44,19 +41,40 @@ def payload_for(start_date: date, end_date: date, *, year_sensitive: bool = Fals
     }
 
 
+def noaa_rows(start_date: date, end_date: date) -> JsonRows:
+    rows: JsonRows = []
+    current = start_date
+    while current <= end_date:
+        rows.append(
+            {
+                "DATE": current.isoformat(),
+                "STATION": "USW00012815",
+                "NAME": "ORLANDO INTERNATIONAL AIRPORT, FL US",
+                "TMAX": "30.0",
+                "TMIN": "20.0",
+                "PRCP": "1.2",
+                "PRCP_ATTRIBUTES": ",,W,",
+                "AWND": "3.0",
+                "WSF2": "8.0",
+            }
+        )
+        current += timedelta(days=1)
+    return rows
+
+
 class FakeProvider(WeatherProvider):
     def __init__(self) -> None:
-        self.historical_calls = 0
+        self.historical_calls: list[tuple[date, date]] = []
 
     def fetch_forecast(self, start_date: date, end_date: date) -> JsonObject:
-        return payload_for(start_date, end_date)
+        return open_meteo_payload(start_date, end_date)
 
-    def fetch_historical(self, start_date: date, end_date: date) -> JsonObject:
-        self.historical_calls += 1
-        return payload_for(start_date, end_date)
+    def fetch_historical(self, start_date: date, end_date: date) -> JsonRows:
+        self.historical_calls.append((start_date, end_date))
+        return noaa_rows(start_date, end_date)
 
     def fetch_climate_sample(self, start_date: date, end_date: date) -> JsonObject:
-        return payload_for(start_date, end_date, year_sensitive=True)
+        return open_meteo_payload(start_date, end_date, year_sensitive=True)
 
     def fetch_seasonal(self, forecast_days: int) -> JsonObject:
         assert forecast_days == 210
@@ -87,39 +105,71 @@ def build_service(tmp_path: Path) -> tuple[WeatherQueryService, FakeProvider]:
     return WeatherQueryService(settings, provider, repository), provider
 
 
-def test_parse_daily_handles_optional_values() -> None:
+def test_parse_daily_keeps_missing_precipitation_as_missing() -> None:
     payload = {
         "daily": {
             "time": ["2026-08-01"],
             "temperature_2m_max": [33.2],
             "temperature_2m_min": [24.1],
-            "precipitation_sum": [4.5],
-            "weather_code": [61],
+            "precipitation_sum": [None],
         }
     }
     result = parse_daily(payload, 0)
-    assert result.date == date(2026, 8, 1)
-    assert result.temperature_max_c == 33.2
-    assert result.precipitation_sum_mm == 4.5
-    assert result.wind_speed_max_kmh is None
+    assert result.precipitation_sum_mm is None
 
 
-def test_rejects_windows_longer_than_fifteen_days(tmp_path: Path) -> None:
-    service, _ = build_service(tmp_path)
-    with pytest.raises(ValueError, match="máximo 15 días"):
-        service.validate_window(date(2026, 11, 1), date(2026, 11, 16))
+def test_noaa_trace_and_missing_are_not_confused_with_zero() -> None:
+    trace = parse_noaa_row(
+        {
+            "DATE": "2025-11-01",
+            "TMAX": "30",
+            "TMIN": "20",
+            "PRCP": "0",
+            "PRCP_ATTRIBUTES": "T,,W,",
+        }
+    )
+    missing = parse_noaa_row(
+        {"DATE": "2025-11-02", "TMAX": "30", "TMIN": "20", "PRCP": ""}
+    )
+    assert trace.precipitation_trace is True
+    assert trace.precipitation_sum_mm == 0.0
+    assert missing.precipitation_trace is False
+    assert missing.precipitation_sum_mm is None
 
 
-def test_historical_2025_uses_historical_weather_dataset(tmp_path: Path) -> None:
+def test_arbitrary_long_window_is_allowed() -> None:
+    service = WeatherQueryService.__new__(WeatherQueryService)
+    service.validate_window(date(2020, 1, 1), date(2026, 12, 31))
+
+
+def test_historical_uses_noaa_and_chunks_by_calendar_year(tmp_path: Path) -> None:
     service, provider = build_service(tmp_path)
     result = service.query_historical(
-        date(2025, 11, 1),
-        date(2025, 11, 3),
+        date(2024, 12, 30),
+        date(2025, 1, 2),
         datetime(2026, 7, 30, tzinfo=timezone.utc),
     )
-    assert result.dataset == "historical-weather-best-match"
-    assert provider.historical_calls == 1
-    assert len(result.daily) == 3
+    assert result.provider == "noaa-ncei"
+    assert result.dataset == "GHCN-Daily Daily Summaries"
+    assert result.station_id == "USW00012815"
+    assert provider.historical_calls == [
+        (date(2024, 12, 30), date(2024, 12, 31)),
+        (date(2025, 1, 1), date(2025, 1, 2)),
+    ]
+    assert result.returned_days == 4
+
+
+def test_historical_before_station_record_reports_missing_dates(tmp_path: Path) -> None:
+    service, provider = build_service(tmp_path)
+    result = service.query_historical(
+        date(1951, 12, 30),
+        date(1952, 1, 2),
+        datetime(2026, 7, 30, tzinfo=timezone.utc),
+    )
+    assert provider.historical_calls == [(date(1952, 1, 1), date(1952, 1, 2))]
+    assert result.requested_days == 4
+    assert result.returned_days == 2
+    assert result.missing_dates == [date(1951, 12, 30), date(1951, 12, 31)]
 
 
 def test_future_builds_seasonal_and_climate_reference(tmp_path: Path) -> None:
@@ -134,11 +184,10 @@ def test_future_builds_seasonal_and_climate_reference(tmp_path: Path) -> None:
     assert len(result.seasonal_estimate) == 3
     assert result.seasonal_estimate[0].temperature_max_mean_c == 28.0
     assert len(result.climate_reference) == 3
-    assert result.climate_reference[0].sample_years == 3
     assert result.climate_reference_years == [2023, 2024, 2025]
 
 
-def test_compare_saved_snapshot_with_historical(tmp_path: Path) -> None:
+def test_compare_saved_snapshot_with_noaa_observation(tmp_path: Path) -> None:
     service, _ = build_service(tmp_path)
     snapshot = ForecastSnapshot(
         location_name="Walt Disney World Resort, Orlando",
@@ -170,5 +219,5 @@ def test_compare_saved_snapshot_with_historical(tmp_path: Path) -> None:
         datetime(2026, 7, 30, tzinfo=timezone.utc),
     )
     assert len(reports) == 1
-    assert len(reports[0].daily) == 2
+    assert reports[0].actual_station_id == "USW00012815"
     assert reports[0].daily[0].lead_days == 7

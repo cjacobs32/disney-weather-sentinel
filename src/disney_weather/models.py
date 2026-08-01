@@ -10,41 +10,56 @@ class DailyWeather(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     date: date
-    temperature_max_c: float
-    temperature_min_c: float
+    temperature_max_c: float | None = None
+    temperature_min_c: float | None = None
     apparent_temperature_max_c: float | None = None
     apparent_temperature_min_c: float | None = None
-    precipitation_sum_mm: float = 0.0
+    precipitation_sum_mm: float | None = None
+    precipitation_trace: bool = False
     rain_sum_mm: float | None = None
     precipitation_hours: float | None = None
     precipitation_probability_max_pct: float | None = None
+    wind_speed_mean_kmh: float | None = None
     wind_speed_max_kmh: float | None = None
     wind_gusts_max_kmh: float | None = None
     sunshine_duration_seconds: float | None = None
     weather_code: int | None = None
+    quality_flags: dict[str, str] = Field(default_factory=dict)
+    source_attributes: dict[str, str] = Field(default_factory=dict)
 
 
 class PeriodWeather(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["2.0"] = "2.0"
+    schema_version: Literal["4.0"] = "4.0"
     query_type: Literal["historical"] = "historical"
-    provider: str = "open-meteo"
-    dataset: str
+    provider: str = "noaa-ncei"
+    dataset: str = "GHCN-Daily Daily Summaries"
     location_name: str
     latitude: float
     longitude: float
     timezone: str
+    station_id: str
+    station_name: str
+    station_latitude: float
+    station_longitude: float
+    station_distance_from_target_km: float
+    station_record_start: date
     requested_start: date
     requested_end: date
     retrieved_at_utc: datetime
+    coverage_start: date | None = None
+    coverage_end: date | None = None
+    requested_days: int = Field(ge=1)
+    returned_days: int = Field(ge=0)
+    missing_dates: list[date] = Field(default_factory=list)
     daily: list[DailyWeather]
 
 
 class ForecastSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["2.0"] = "2.0"
+    schema_version: Literal["4.0"] = "4.0"
     query_type: Literal["forecast_snapshot"] = "forecast_snapshot"
     provider: str = "open-meteo"
     model: str = "best_match"
@@ -92,7 +107,7 @@ class SeasonalDailyEstimate(BaseModel):
 class FutureOutlook(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["2.0"] = "2.0"
+    schema_version: Literal["4.0"] = "4.0"
     query_type: Literal["future_outlook"] = "future_outlook"
     provider: str = "open-meteo"
     location_name: str
@@ -125,24 +140,27 @@ class DailyComparison(BaseModel):
     lead_days: int
     forecast: DailyWeather
     actual: DailyWeather
-    temperature_max_error_c: MetricError
-    temperature_min_error_c: MetricError
-    precipitation_error_mm: MetricError
-    rain_event_forecast: bool
-    rain_event_actual: bool
-    rain_event_correct: bool
+    temperature_max_error_c: MetricError | None = None
+    temperature_min_error_c: MetricError | None = None
+    precipitation_error_mm: MetricError | None = None
+    rain_event_forecast: bool | None = None
+    rain_event_actual: bool | None = None
+    rain_event_correct: bool | None = None
 
 
 class ComparisonReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["2.0"] = "2.0"
+    schema_version: Literal["4.0"] = "4.0"
     query_type: Literal["comparison"] = "comparison"
-    provider: str = "open-meteo"
+    provider: str = "open-meteo-vs-noaa-ncei"
     location_name: str
     requested_start: date
     requested_end: date
     generated_at_utc: datetime
     snapshot_captured_at_utc: datetime
     actual_dataset: str
+    actual_station_id: str
+    actual_station_name: str
+    actual_station_distance_from_target_km: float
     daily: list[DailyComparison]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 import os
 
@@ -11,7 +12,6 @@ class Settings:
     longitude: float = -81.5707
     timezone: str = "America/New_York"
     location_name: str = "Walt Disney World Resort, Orlando"
-    max_window_days: int = 15
     forecast_horizon_days: int = 16
     seasonal_horizon_days: int = 210
     climate_reference_years: int = 10
@@ -21,7 +21,14 @@ class Settings:
     forecast_url: str = "https://api.open-meteo.com/v1/forecast"
     archive_url: str = "https://archive-api.open-meteo.com/v1/archive"
     seasonal_url: str = "https://seasonal-api.open-meteo.com/v1/seasonal"
-    request_timeout_seconds: float = 45.0
+    noaa_url: str = "https://www.ncei.noaa.gov/access/services/data/v1"
+    noaa_station_id: str = "USW00012815"
+    noaa_station_name: str = "ORLANDO INTERNATIONAL AIRPORT, FL US"
+    noaa_station_latitude: float = 28.41822
+    noaa_station_longitude: float = -81.32413
+    noaa_station_distance_km: float = 24.5
+    noaa_station_record_start: date = date(1952, 1, 1)
+    request_timeout_seconds: float = 60.0
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -32,7 +39,6 @@ class Settings:
             location_name=os.getenv(
                 "WEATHER_LOCATION_NAME", "Walt Disney World Resort, Orlando"
             ),
-            max_window_days=int(os.getenv("WEATHER_MAX_WINDOW_DAYS", "15")),
             forecast_horizon_days=int(os.getenv("WEATHER_FORECAST_HORIZON_DAYS", "16")),
             seasonal_horizon_days=int(os.getenv("WEATHER_SEASONAL_HORIZON_DAYS", "210")),
             climate_reference_years=int(os.getenv("WEATHER_CLIMATE_YEARS", "10")),
@@ -48,5 +54,24 @@ class Settings:
             seasonal_url=os.getenv(
                 "WEATHER_SEASONAL_URL", "https://seasonal-api.open-meteo.com/v1/seasonal"
             ),
-            request_timeout_seconds=float(os.getenv("WEATHER_TIMEOUT_SECONDS", "45")),
+            noaa_url=os.getenv(
+                "WEATHER_NOAA_URL", "https://www.ncei.noaa.gov/access/services/data/v1"
+            ),
+            noaa_station_id=os.getenv("WEATHER_NOAA_STATION_ID", "USW00012815"),
+            noaa_station_name=os.getenv(
+                "WEATHER_NOAA_STATION_NAME", "ORLANDO INTERNATIONAL AIRPORT, FL US"
+            ),
+            noaa_station_latitude=float(
+                os.getenv("WEATHER_NOAA_STATION_LATITUDE", "28.41822")
+            ),
+            noaa_station_longitude=float(
+                os.getenv("WEATHER_NOAA_STATION_LONGITUDE", "-81.32413")
+            ),
+            noaa_station_distance_km=float(
+                os.getenv("WEATHER_NOAA_STATION_DISTANCE_KM", "24.5")
+            ),
+            noaa_station_record_start=date.fromisoformat(
+                os.getenv("WEATHER_NOAA_RECORD_START", "1952-01-01")
+            ),
+            request_timeout_seconds=float(os.getenv("WEATHER_TIMEOUT_SECONDS", "60")),
         )
