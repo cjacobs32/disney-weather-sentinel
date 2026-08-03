@@ -1,0 +1,38 @@
+{
+  "name": "disney-sentinel",
+  "version": "1.6.0",
+  "private": true,
+  "description": "Monitor autónomo, gratuito y auditable de Walt Disney World con frontend visual PWA y configuración multi-viaje.",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "node scripts/clean.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test dist/tests/**/*.test.js && npm run test:state-persistence",
+    "test:unit": "npm run build && node --test dist/tests/unit/*.test.js",
+    "test:integration": "npm run build && node --test dist/tests/integration/*.test.js",
+    "sentinel": "node dist/src/cli.js",
+    "validate-config": "node dist/src/cli.js validate-config",
+    "telegram:test": "node dist/src/cli.js telegram-test",
+    "phase0": "node dist/src/cli.js phase0",
+    "promotions": "node dist/src/cli.js promotions",
+    "availability": "node dist/src/cli.js availability",
+    "watchdog": "node dist/src/cli.js watchdog",
+    "summary": "node dist/src/cli.js summary",
+    "status": "node dist/src/cli.js status",
+    "telegram-test": "node dist/src/cli.js telegram-test",
+    "trip-issue": "node dist/src/cli.js trip-issue",
+    "trips-report": "node dist/src/cli.js trips-report",
+    "test:state-persistence": "node --test scripts/resolve-state-conflict.test.mjs",
+    "availability-all": "node dist/src/cli.js availability-all"
+  },
+  "dependencies": {
+    "playwright": "1.55.0"
+  },
+  "devDependencies": {
+    "typescript": "5.8.3"
+  }
+}

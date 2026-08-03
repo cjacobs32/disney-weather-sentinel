@@ -1,0 +1,71 @@
+{
+  "version": "1.6.0",
+  "releaseType": "patch",
+  "baseVersion": "1.5.6",
+  "generatedAt": "2026-08-03T20:30:00Z",
+  "files": [
+    {
+      "path": ".github/workflows/monitor-availability.yml",
+      "size": 3158,
+      "sha256": "39ac11c0aa8fe8e66fe7425a9743d1541cabb2dcd9df7035cd3987df58ed6dcb"
+    },
+    {
+      "path": "src/application/run-availability-all.ts",
+      "size": 7256,
+      "sha256": "4defec635d7d9a6d683bceae4e5a41a4a70ab009e779905902d452c8b61356ff"
+    },
+    {
+      "path": "src/cli.ts",
+      "size": 2822,
+      "sha256": "a12b0ba6eb4298b209d0dd9f62065c343ce4c6b4d4055689e046dcd5342162aa"
+    },
+    {
+      "path": "tests/unit/availability-batch.test.ts",
+      "size": 3474,
+      "sha256": "b2a34bd54f733de258ee482dc705a70b8bc4e47bfb1a9c42e94df93c6ca8133e"
+    },
+    {
+      "path": "package.json",
+      "size": 1561,
+      "sha256": "2735b072bb94939920b583ff5c3ec99492441a0aaf1b10f55c2b71d868c94129"
+    },
+    {
+      "path": "package-lock.json",
+      "size": 2250,
+      "sha256": "9c0178165b6e1d25c33450cd196e62530133f7d9b7b64f21aebda8349c59ed78"
+    },
+    {
+      "path": "CHANGELOG.md",
+      "size": 12104,
+      "sha256": "2867387ffce5148b9053a8ec24d92763037ba3b73d7084d8b9f4c2f9dc525e1f"
+    },
+    {
+      "path": "README.md",
+      "size": 2844,
+      "sha256": "6802e81a9f3d50dd1ffbf7507be1cd21ac060cb0882037a9db41c412f9dd68e6"
+    },
+    {
+      "path": "RELEASE_NOTES_V1_6_0.md",
+      "size": 677,
+      "sha256": "6fb93ff048088a30ca76c34d166a1777e56764c109a9b81295b321a54d50182f"
+    },
+    {
+      "path": "INSTALAR_V1_6_0.md",
+      "size": 695,
+      "sha256": "ce1c8bcdf8bc379aff7724ac14e79784f234bd65244943ccc09d60a93c8cf357"
+    },
+    {
+      "path": "CONTENIDO_V1_6_0.txt",
+      "size": 392,
+      "sha256": "65c8557bce9bfc65e18fdd6e18f7bee5ce556bc33a097cde97c5b67e473917e8"
+    }
+  ],
+  "excluded": [
+    "config/",
+    "data/",
+    "reports/",
+    "out/",
+    "dist/",
+    "node_modules/"
+  ]
+}

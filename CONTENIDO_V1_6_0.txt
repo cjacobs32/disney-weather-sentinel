@@ -1,0 +1,15 @@
+Disney Sentinel v1.6.0 PATCH
+
+Archivos funcionales:
+- .github/workflows/monitor-availability.yml
+- src/application/run-availability-all.ts
+- src/cli.ts
+- tests/unit/availability-batch.test.ts
+- package.json
+- package-lock.json
+- CHANGELOG.md
+- RELEASE_NOTES_V1_6_0.md
+- INSTALAR_V1_6_0.md
+- MANIFEST_V1_6_0.json
+
+No incluye configuración de viajes, datos, históricos, reportes ni secretos.

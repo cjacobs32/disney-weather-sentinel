@@ -1,0 +1,80 @@
+name: Disney Sentinel - Disponibilidad
+on:
+  schedule:
+    - cron: '43 0,6,12,18 * * *'
+  workflow_dispatch:
+    inputs:
+      profile_id:
+        description: 'Viaje a consultar. Debe coincidir con un profileId activo de config/trips.json.'
+        required: true
+        default: 'wdw-nov-2027'
+        type: string
+      execution_scope:
+        description: 'Consultar todas las fechas configuradas o una sola prioridad.'
+        required: true
+        default: 'all_windows'
+        type: choice
+        options:
+          - all_windows
+          - single_window
+      window_priority:
+        description: 'Solo se usa con single_window. Prioridad de la fecha dentro del viaje.'
+        required: false
+        default: '1'
+        type: string
+      validation_mode:
+        description: 'Modo seguro: no envía Telegram ni modifica el circuito productivo.'
+        required: true
+        default: true
+        type: boolean
+permissions:
+  contents: write
+concurrency:
+  group: disney-sentinel-writer
+  cancel-in-progress: false
+jobs:
+  availability:
+    if: ${{ github.event_name == 'workflow_dispatch' || vars.ENABLE_AVAILABILITY == 'true' }}
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      TELEGRAM_DRY_RUN: ${{ vars.TELEGRAM_DRY_RUN || 'false' }}
+      SENTINEL_COMMIT_LABEL: availability
+      DISNEY_BROWSER_MODE: system-chrome
+      SENTINEL_AVAILABILITY_PROFILE_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.profile_id || '' }}
+      SENTINEL_AVAILABILITY_WINDOW_PRIORITY: ${{ github.event_name == 'workflow_dispatch' && inputs.window_priority || '' }}
+      SENTINEL_AVAILABILITY_VALIDATION: ${{ github.event_name == 'workflow_dispatch' && inputs.validation_mode || false }}
+      SENTINEL_AVAILABILITY_ALL_WINDOWS: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_scope == 'all_windows' || false }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Instalar dependencias
+        run: npm install --no-audit --no-fund
+      - name: Compilar
+        run: npm run build
+      - name: Ejecutar disponibilidad programada
+        if: ${{ github.event_name != 'workflow_dispatch' }}
+        run: npm run availability
+      - name: Ejecutar una fecha seleccionada
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_scope == 'single_window' }}
+        run: npm run availability
+      - name: Ejecutar todas las fechas configuradas
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_scope == 'all_windows' }}
+        run: npm run availability-all
+      - name: Persistir estado
+        shell: bash
+        run: ./scripts/commit-state.sh
+      - name: Subir evidencia diagnóstica
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: availability-${{ github.run_id }}
+          path: out/artifacts/
+          if-no-files-found: ignore
+          retention-days: 7

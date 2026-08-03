@@ -1,114 +1,79 @@
-# Disney Weather Sentinel 4.1
+# Disney Sentinel v1.5
 
-Aplicación de costo cero para consultar el tiempo de Orlando bajo demanda, guardar pronósticos y compararlos posteriormente con observaciones oficiales.
+Disney Sentinel es una plataforma personal, gratuita y auditable para monitorear Walt Disney World mediante GitHub Free, GitHub Actions, GitHub Pages y Telegram.
 
-## Cambios de esta versión
-
-1. **Histórico observado:** el modo histórico usa NOAA/NCEI GHCN-Daily, estación Orlando International Airport (`USW00012815`, KMCO). Ya no presenta un reanálisis modelado como si fuera una medición real.
-2. **Rango libre:** no existe un límite artificial de 15 días. Se puede consultar un día, un mes, un año o varios años. Para períodos extensos, la interfaz resume por mes y el JSON conserva todos los registros diarios.
-3. **Lluvia destacada:** la pantalla principal muestra los días con lluvia como indicador prioritario, separado de la cobertura, con porcentaje, trazas y clasificación por intensidad. Los días con lluvia también quedan resaltados en la tabla diaria.
-
-## Qué significa “observado”
-
-Los datos históricos son mediciones de una estación física:
-
-- Fuente: NOAA / NCEI.
-- Dataset: GHCN-Daily Daily Summaries.
-- Estación: Orlando International Airport, KMCO.
-- Identificador: `USW00012815`.
-- Distancia aproximada a Walt Disney World: 24,5 km.
-
-No son mediciones dentro de Magic Kingdom, EPCOT, Hollywood Studios o Animal Kingdom. La temperatura suele ser una referencia útil para Orlando; la lluvia puede variar considerablemente entre KMCO y Disney.
-
-Los valores ausentes quedan como **Sin dato**. Una traza de precipitación se conserva como **Traza**. No se reemplazan faltantes con cero ni con un modelo.
-
-## Stack gratuito
-
-- GitHub Pages para el frontend.
-- GitHub Actions solo bajo demanda.
-- NOAA/NCEI Access Data Service sin API key.
-- Open-Meteo sin API key para pronóstico, tendencia estacional y referencia climática.
-- Archivos JSON y Markdown versionados en Git.
-- Sin servidor, base de datos, tarjeta ni cron activo.
-
-## Estructura
+## Estado actual
 
 ```text
-.github/workflows/weather-query.yml  Workflow manual
-docs/                                Frontend para GitHub Pages
-src/disney_weather/                  Motor Python
-data/                                Resultados versionados
-reports/                             Informes Markdown
-tests/                               Pruebas
+Fase 0: APROBADA
+Promociones: OPERATIVAS
+Centro de configuración: OPERATIVO con Dashboard v2.3
+Apertura de ventas: IMPLEMENTADA
+Disponibilidad real: IMPLEMENTADA, pendiente de validar la primera corrida productiva v1.5
+Histórico por consulta y gráficos: IMPLEMENTADOS
 ```
 
-## Publicación rápida
+## Centro de configuración
 
-1. Crear un repositorio público vacío.
-2. Subir el contenido de esta carpeta a la raíz del repositorio.
-3. Ir a `Settings → Actions → General → Workflow permissions` y elegir `Read and write permissions`.
-4. Ir a `Settings → Pages`.
-5. Elegir `Deploy from a branch`.
-6. Seleccionar rama `main` y carpeta `/docs`.
-7. Abrir la URL de GitHub Pages cuando termine la publicación.
+Cada viaje admite:
 
-No hay Secrets que configurar.
+- destino operativo (`WALT_DISNEY_WORLD`);
+- ventanas de fechas y noches;
+- pasajeros y edades;
+- hoteles prioritarios y alternativos desde un catálogo amigable;
+- entradas y plan de comidas;
+- promociones y audiencias a vigilar;
+- umbrales de baja de precio;
+- días y horarios de monitoreo en `America/Argentina/Buenos_Aires`;
+- Telegram activado o desactivado por viaje.
 
-## Uso del frontend
+El modelo ya contiene el campo destino, pero el único recolector productivo de esta versión es Walt Disney World. Email continúa fuera de alcance, como etapa posterior.
 
-Elegir:
+## Disponibilidad e histórico
 
-- **Automática según las fechas**.
-- **Observado: qué midió una estación oficial**.
-- **Futuro: mejor información disponible**.
-- **Capturar pronóstico para comparar después**.
-
-Luego completar `Desde`, `Hasta` y presionar **Analizar período**.
-
-### Períodos históricos largos
-
-La consulta se divide internamente por años para reducir el tamaño de cada llamada a NOAA. Si el período supera 180 días:
-
-- la pantalla muestra un resumen mensual;
-- el gráfico usa una muestra visual;
-- el JSON descargado mantiene todos los días devueltos.
-
-La estación tiene cobertura desde 1952. Si se pide una fecha anterior, el sistema acepta el rango y declara las fechas sin cobertura.
-
-### Fechas futuras
-
-El selector permite cualquier rango, pero la disponibilidad meteorológica depende de los modelos:
-
-- hasta aproximadamente 16 días: pronóstico diario;
-- después: tendencia estacional, cuando está disponible;
-- cualquier fecha: referencia climática basada en años anteriores.
-
-El sistema no inventa valores diarios para fechas fuera del horizonte.
-
-## Uso desde GitHub Actions
-
-Abrir:
+Cuando Disney habilita una ventana, el monitor registra disponibilidad, tipo de habitación cuando puede extraerlo y precio total. Cada consulta saludable genera observaciones append-only en:
 
 ```text
-Actions → Consulta meteorológica Disney → Run workflow
+data/history/prices/<profileId>/<AAAA-MM>.jsonl
 ```
 
-Operaciones:
+El dashboard consolida series por combinación de viaje, fecha, hotel, habitación y paquete, con:
 
-- `historical`: observaciones NOAA/NCEI.
-- `future`: pronóstico, tendencia y referencia climática.
-- `capture`: guarda el pronóstico vigente.
-- `compare`: compara capturas con observaciones de KMCO.
+- precio anterior;
+- precio actual;
+- variación;
+- mínimo y máximo;
+- cantidad de consultas;
+- puntos para gráficos.
 
-No existe `schedule:` activo.
+## Horarios
+
+Los workflows se despiertan en cuatro franjas compatibles con GitHub Actions: 03, 09, 15 y 21 h de Buenos Aires. Cada viaje filtra cuáles de esas franjas utiliza. Las ejecuciones manuales no quedan bloqueadas por el horario.
+
+## Archivos principales
+
+- `config/trips.json`: viajes y preferencias personales. No se reemplaza con este update.
+- `config/destinations.json`: catálogo de destinos y hoteles.
+- `config/monitoring.json`: controles globales de seguridad y costo.
+- `data/current/dashboard.json`: contrato consolidado para el frontend.
+- `data/history/prices/`: histórico append-only de cada consulta.
+
+## Seguridad y costo
+
+No hay proxies, bypass de CAPTCHA, reservas, inicios de sesión ni pagos automatizados. Todo funciona dentro de GitHub Free y Telegram.
+
+## Instalación
+
+Seguir [INSTALAR_V1_5.md](INSTALAR_V1_5.md).
 
 ## Validación local
 
 ```bash
-python -m pip install -e ".[dev]"
-ruff check .
-mypy src
-pytest -q
+npm run typecheck
+npm test
+npm run validate-config
 ```
+## Consulta manual de todas las fechas
 
-La versión entregada incluye siete pruebas unitarias.
+Desde v1.6.0, `npm run availability-all` recorre todas las fechas del perfil indicado por `SENTINEL_AVAILABILITY_PROFILE_ID`. El workflow manual permite elegir entre todas las fechas o una sola prioridad. La programación automática conserva la estrategia de bajo consumo.
+
